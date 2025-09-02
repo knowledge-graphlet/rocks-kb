@@ -20,9 +20,11 @@
             <groupId>org.eclipse.collections</groupId>
             <artifactId>eclipse-collections</artifactId>
         </dependency>
+        <!-- Platform-specific natives JAR -->
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>rocksdbjni</artifactId>
+            <classifier>${platform.classifier}</classifier>
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>

@@ -225,14 +225,55 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public void close() {
-        this.entityMap.close();
-        this.entityReferencingSemanticMap.close();
-        this.nidEntityKeyMap.close();
-        this.uuidEntityKeyNidMap.close();
-        this.sequenceMap.close();
-        this.db.close();
-        this.blockCache.close();
-        // Ensure Lucene writer/searcher resources are released to drop write.lock
+        try {
+            if (this.entityMap != null) {
+                this.entityMap.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing entityMap", e);
+        }
+        try {
+            if (this.entityReferencingSemanticMap != null) {
+                this.entityReferencingSemanticMap.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing entityReferencingSemanticMap", e);
+        }
+        try {
+            if (this.nidEntityKeyMap != null) {
+                this.nidEntityKeyMap.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing nidEntityKeyMap", e);
+        }
+        try {
+            if (this.uuidEntityKeyNidMap != null) {
+                this.uuidEntityKeyNidMap.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing uuidEntityKeyNidMap", e);
+        }
+        try {
+            if (this.sequenceMap != null) {
+                this.sequenceMap.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing sequenceMap", e);
+        }
+        try {
+            if (this.db != null) {
+                this.db.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing RocksDB", e);
+        }
+        try {
+            if (this.blockCache != null) {
+                this.blockCache.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing blockCache", e);
+        }
         try {
             if (this.indexer != null) {
                 this.indexer.close();
