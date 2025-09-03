@@ -5,12 +5,10 @@ import dev.ikm.ds.rocks.KeyUtil;
 import dev.ikm.ds.rocks.EntityKey;
 import dev.ikm.tinkar.common.id.PublicId;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
@@ -22,7 +20,7 @@ import org.rocksdb.*;
 import static dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE;
 import static dev.ikm.ds.rocks.maps.SequenceMap.patternPatternEntityKey;
 
-public class UuidEntityKeyNidMap
+public class UuidEntityKeyMap
         extends RocksDbMap<RocksDB> {
     enum Mode {
         /**
@@ -52,17 +50,13 @@ public class UuidEntityKeyNidMap
 
     final SequenceMap sequenceMap;
 
-    final NidEntityKeyMap nidEntityKeyMap;
-
     final ConcurrentHashMap<UUID, EntityKey> uuidEntityKeyMap = new ConcurrentHashMap<>();
 
-    public UuidEntityKeyNidMap(RocksDB db,
-                               ColumnFamilyHandle mapHandle,
-                               SequenceMap sequenceMap,
-                               NidEntityKeyMap nidEntityKeyMap) {
+    public UuidEntityKeyMap(RocksDB db,
+                            ColumnFamilyHandle mapHandle,
+                            SequenceMap sequenceMap) {
         super(db, mapHandle);
         this.sequenceMap = sequenceMap;
-        this.nidEntityKeyMap = nidEntityKeyMap;
         this.open();
     }
 
@@ -186,7 +180,7 @@ public class UuidEntityKeyNidMap
                 if (keyBytes.length == 16 && valueBytes.length >= 12) {
                     // UUID: 16 bytes, EntityKey: at least 12 bytes if 3 ints
                     UUID uuid = KeyUtil.byteArrayToUuid(keyBytes);
-                    EntityKey entityKey = KeyUtil.bytesToEntityKey(valueBytes);
+                    EntityKey entityKey = KeyUtil.entityKeyToBytes(valueBytes);
                     uuidEntityKeyMap.put(uuid, entityKey);
                 }
             }
@@ -227,19 +221,14 @@ public class UuidEntityKeyNidMap
             EntityKey patternKey = PATTERN_ENTITY_KEY.get();
             int patternSequence = (int) patternKey.elementSequence();
             long patternElementSequence = this.sequenceMap.nextElementSequence(patternSequence);
-            int entityNid = this.sequenceMap.nextNid();
-            EntityKey entityKey = EntityKey.of(patternSequence, patternElementSequence, entityNid);
-            nidEntityKeyMap.put(entityKey);
-            return entityKey;
+            return EntityKey.of(patternSequence, patternElementSequence);
         });
     }
 
     private EntityKey makePatternEntityKey(UUID uuid) {
         return getEntityKey(uuid).orElseGet(() -> {
             int patternSequence = this.sequenceMap.nextPatternSequence();
-            int patternNid = this.sequenceMap.nextNid();
-            EntityKey patternEntityKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternSequence, patternNid);
-            nidEntityKeyMap.put(patternEntityKey);
+            EntityKey patternEntityKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternSequence);
             return patternEntityKey;
         });
     }
@@ -279,7 +268,7 @@ public class UuidEntityKeyNidMap
         if (memoryMode.get() == Mode.CACHING) {
             byte[] keyBytes = KeyUtil.uuidToByteArray(uuid);
             if (keyExists(keyBytes)) {
-                return Optional.of(KeyUtil.bytesToEntityKey(get(keyBytes)));
+                return Optional.of(KeyUtil.entityKeyToBytes(get(keyBytes)));
             }
         }
         return Optional.empty();

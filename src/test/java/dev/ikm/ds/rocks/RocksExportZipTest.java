@@ -68,13 +68,6 @@ public class RocksExportZipTest {
                     " != expected " + expectedEntityCount);
         }
 
-        // 4) Optionally, validate NidEntityKeyMap count equals expected count
-        long nidKeyEntries = countNidEntityKeyEntries();
-        if (nidKeyEntries != expectedEntityCount) {
-            throw new AssertionError("NidEntityKeyMap count " + nidKeyEntries +
-                    " != expected " + expectedEntityCount);
-        }
-
         // 5) Export to zip (only after validations pass)
         File outDir = new File("target/export");
         Files.createDirectories(outDir.toPath());
@@ -82,12 +75,11 @@ public class RocksExportZipTest {
 
         try (ZipOutputStream zos = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(outZip)))) {
             long seqEntries = writeSequenceMapEntry(zos);     // raw seq map
-            long entityKeyEntries = writeEntityKeysEntry(zos); // nid -> EntityKey
             long entityMapEntries = writeEntityMapEntry(zos);  // all EntityMap KV pairs
 
-            writeManifest(zos, seqEntries, entityKeyEntries, entityMapEntries,
-                    expectedEntityCount, validatedEntityCount, nidKeyEntries, patternToLastExclusive);
-            writeValidationSummary(zos, expectedEntityCount, validatedEntityCount, nidKeyEntries);
+             writeManifest(zos, seqEntries, entityMapEntries,
+                    expectedEntityCount, validatedEntityCount, patternToLastExclusive);
+            writeValidationSummary(zos, expectedEntityCount, validatedEntityCount);
         }
     }
 
@@ -208,22 +200,6 @@ public class RocksExportZipTest {
         return sb.toString();
     }
 
-    private long countNidEntityKeyEntries() {
-        RocksDB db = RocksProvider.singleton.getDb();
-        var cf = RocksProvider.singleton.getHandle(RocksProvider.ColumnFamily.NID_ENTITY_KEY_MAP);
-        long count = 0;
-        try (RocksIterator it = db.newIterator(cf)) {
-            for (it.seekToFirst(); it.isValid(); it.next()) {
-                byte[] k = it.key();
-                byte[] v = it.value();
-                if (k.length == 4 && v.length >= 12) {
-                    count++;
-                }
-            }
-        }
-        return count;
-    }
-
     // --- Export writers ---
 
     private long writeSequenceMapEntry(ZipOutputStream zos) throws Exception {
@@ -241,29 +217,6 @@ public class RocksExportZipTest {
                 if (keyBytes.length == 4 && valueBytes.length == 8) {
                     zos.write(keyBytes);
                     zos.write(valueBytes);
-                    count++;
-                }
-            }
-        }
-        zos.closeEntry();
-        return count;
-    }
-
-    private long writeEntityKeysEntry(ZipOutputStream zos) throws Exception {
-        RocksDB db = RocksProvider.singleton.getDb();
-        var cf = RocksProvider.singleton.getHandle(RocksProvider.ColumnFamily.NID_ENTITY_KEY_MAP);
-
-        ZipEntry entry = new ZipEntry("entity-keys.dat");
-        zos.putNextEntry(entry);
-
-        long count = 0;
-        try (RocksIterator it = db.newIterator(cf)) {
-            for (it.seekToFirst(); it.isValid(); it.next()) {
-                byte[] nidKeyBytes = it.key();   // 4 bytes (int nid)
-                byte[] ekValueBytes = it.value(); // >= 12 bytes (8 longKey + 4 nid)
-                if (nidKeyBytes.length == 4 && ekValueBytes.length >= 12) {
-                    zos.write(nidKeyBytes);
-                    zos.write(ekValueBytes);
                     count++;
                 }
             }
@@ -300,11 +253,9 @@ public class RocksExportZipTest {
 
     private void writeManifest(ZipOutputStream zos,
                                long seqEntries,
-                               long entityKeyEntries,
                                long entityMapEntries,
                                long expectedEntityCount,
                                long validatedEntityCount,
-                               long nidKeyEntries,
                                Map<Integer, Long> patternToLastExclusive) throws Exception {
         Manifest mf = new Manifest();
         Attributes main = mf.getMainAttributes();
@@ -315,13 +266,11 @@ public class RocksExportZipTest {
 
         // Export counts
         main.put(new Attributes.Name("SequenceMap-Entry-Count"), Long.toString(seqEntries));
-        main.put(new Attributes.Name("EntityKey-Entry-Count"), Long.toString(entityKeyEntries));
         main.put(new Attributes.Name("EntityMap-Entry-Count"), Long.toString(entityMapEntries));
 
         // Validation summary
         main.put(new Attributes.Name("Expected-Entity-Count"), Long.toString(expectedEntityCount));
         main.put(new Attributes.Name("Validated-Entity-Count"), Long.toString(validatedEntityCount));
-        main.put(new Attributes.Name("NidKey-Entry-Count"), Long.toString(nidKeyEntries));
 
         // Brief sequence summary (pattern -> lastExclusive)
         StringBuilder sb = new StringBuilder();
@@ -346,8 +295,7 @@ public class RocksExportZipTest {
 
     private void writeValidationSummary(ZipOutputStream zos,
                                         long expectedEntityCount,
-                                        long validatedEntityCount,
-                                        long nidKeyEntries) throws Exception {
+                                        long validatedEntityCount) throws Exception {
         ZipEntry e = new ZipEntry("validation.txt");
         zos.putNextEntry(e);
         String txt = """
@@ -355,12 +303,11 @@ public class RocksExportZipTest {
                 ==================
                 Expected entity count : %d
                 Validated entity count: %d
-                NidKey entries        : %d
 
                 Status: %s
                 """.formatted(
-                expectedEntityCount, validatedEntityCount, nidKeyEntries,
-                (expectedEntityCount == validatedEntityCount && validatedEntityCount == nidKeyEntries) ? "OK" : "MISMATCH");
+                expectedEntityCount, validatedEntityCount,
+                (expectedEntityCount == validatedEntityCount) ? "OK" : "MISMATCH");
         zos.write(txt.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         zos.closeEntry();
     }

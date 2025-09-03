@@ -188,26 +188,16 @@ public class KeyUtil {
         return UuidUtil.getRawBytes(uuid);
     }
 
-    public static byte[] bytesToEntityKey(long longKey, int nid) {
+    public static byte[] entityKeyToBytes(long longKey) {
         EntityKey.checkLongKey(longKey);
-        byte[] result = new byte[12];
+        byte[] result = new byte[8];
         // 64 bits (8 bytes) for longKey — big-endian
         longKeyToBytes(longKey, result);
-        result[8] = (byte) (nid >>> 24);
-        result[9] = (byte) (nid >>> 16);
-        result[10] = (byte) (nid >>> 8);
-        result[11] = (byte) nid;
         return result;
     }
 
-    public static EntityKey bytesToEntityKey(byte[] entityKeyBytes) {
-        long longKey = byteArrayToLong(entityKeyBytes);
-        int nid = ((entityKeyBytes[8] & 0xFF) << 24) |
-                ((entityKeyBytes[9] & 0xFF) << 16) |
-                ((entityKeyBytes[10] & 0xFF) << 8) |
-                (entityKeyBytes[11] & 0xFF);
-
-        return EntityKey.of(longKey, nid);
+    public static EntityKey entityKeyToBytes(byte[] entityKeyBytes) {
+        return EntityKey.of(byteArrayToLong(entityKeyBytes));
     }
 
     public static byte[] entityReferencingSemanticKey(EntityKey entityKey, EntityKey referencingEntityKey) {
@@ -251,14 +241,13 @@ public class KeyUtil {
     }
 
     public static EntityKey referencingEntityKeyFromEntityReferencingSemanticKey(byte[] compoundKey) {
-        if (compoundKey == null || compoundKey.length != 20) {
-            throw new IllegalArgumentException("compoundKey must be exactly 20 bytes");
+        if (compoundKey == null || compoundKey.length != 16) {
+            throw new IllegalArgumentException("compoundKey must be exactly 16 bytes");
         }
 
         // Offsets:
         // [0..7]   -> entityKey.longKey()
         // [8..15]  -> referencingEntityKey.longKey()
-        // [16..19] -> referencingEntityKey.nid()
 
         long refLongKey =
                 ((long) (compoundKey[8]  & 0xFF) << 56) |
@@ -270,15 +259,9 @@ public class KeyUtil {
                         ((long) (compoundKey[14] & 0xFF) << 8)  |
                         ((long) (compoundKey[15] & 0xFF));
 
-        int refNid =
-                ((compoundKey[16] & 0xFF) << 24) |
-                        ((compoundKey[17] & 0xFF) << 16) |
-                        ((compoundKey[18] & 0xFF) << 8)  |
-                        ((compoundKey[19] & 0xFF));
-
         // Validate and construct
         EntityKey.checkLongKey(refLongKey);
-        return EntityKey.of(refLongKey, refNid);
+        return EntityKey.of(refLongKey);
     }
 
 }

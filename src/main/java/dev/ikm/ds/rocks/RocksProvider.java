@@ -52,9 +52,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     private final RocksDB db;
     private final EntityMap entityMap;
     private final EntityReferencingSemanticMap entityReferencingSemanticMap;
-    private final NidEntityKeyMap nidEntityKeyMap;
     private final SequenceMap sequenceMap;
-    private final UuidEntityKeyNidMap uuidEntityKeyNidMap;
+    private final UuidEntityKeyMap uuidEntityKeyMap;
 
     private final List<ColumnFamilyHandle> columnHandles = new ArrayList<>();
 
@@ -62,8 +61,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         DEFAULT(RocksDB.DEFAULT_COLUMN_FAMILY, -1, 0, 1024 * 1024),
         ENTITY_MAP("EntityMap", 2, defaultBloomFilterBitsPerKey, 512L * 1024 * 1024),
         ENTITY_REFERENCING_SEMANTIC_MAP("EntityReferencingSemanticMap", 16, defaultBloomFilterBitsPerKey, 10L * 1024 * 1024),
-        NID_ENTITY_KEY_MAP("NidEntityKeyMap", -1, defaultBloomFilterBitsPerKey, 10L * 1024 * 1024),
-        UUID_ENTITY_KEY_NID_MAP("UuidEntityKeyNidMap", -1, defaultBloomFilterBitsPerKey, 10L * 1024 * 1024),;
+        UUID_ENTITY_KEY_MAP("UuidEntityKeyMap", -1, defaultBloomFilterBitsPerKey, 10L * 1024 * 1024);
 
         private final byte[] value;
         private final int keyPrefixBytes; // For compound keys. -1 if no prefix;
@@ -168,10 +166,9 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         ) {
             db = RocksDB.open(options, rockFiles.getAbsolutePath(), columnDescriptors, columnHandles);
             entityReferencingSemanticMap = new EntityReferencingSemanticMap(db, getHandle(ColumnFamily.ENTITY_REFERENCING_SEMANTIC_MAP));
-            nidEntityKeyMap = new NidEntityKeyMap(db, getHandle(ColumnFamily.NID_ENTITY_KEY_MAP));
             sequenceMap = new SequenceMap(db, getHandle(ColumnFamily.DEFAULT));
-            uuidEntityKeyNidMap = new UuidEntityKeyNidMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_NID_MAP), sequenceMap, nidEntityKeyMap);
-            entityMap = new EntityMap(db, getHandle(ColumnFamily.ENTITY_MAP), uuidEntityKeyNidMap);
+            uuidEntityKeyMap = new UuidEntityKeyMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_MAP), sequenceMap);
+            entityMap = new EntityMap(db, getHandle(ColumnFamily.ENTITY_MAP), uuidEntityKeyMap);
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
@@ -213,9 +210,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     public void save() {
         entityMap.save();
         entityReferencingSemanticMap.save();
-        nidEntityKeyMap.save();
         sequenceMap.save();
-        uuidEntityKeyNidMap.save();
+        uuidEntityKeyMap.save();
         try (FlushOptions flushOptions = new FlushOptions()) {
             db.flush(flushOptions);
         } catch (RocksDBException e) {
@@ -240,15 +236,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             LOG.warn("Error closing entityReferencingSemanticMap", e);
         }
         try {
-            if (this.nidEntityKeyMap != null) {
-                this.nidEntityKeyMap.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing nidEntityKeyMap", e);
-        }
-        try {
-            if (this.uuidEntityKeyNidMap != null) {
-                this.uuidEntityKeyNidMap.close();
+            if (this.uuidEntityKeyMap != null) {
+                this.uuidEntityKeyMap.close();
             }
         } catch (Exception e) {
             LOG.warn("Error closing uuidEntityKeyNidMap", e);
@@ -284,7 +273,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
-        return uuidEntityKeyNidMap.getEntityKey(patternId, entityId);
+        return uuidEntityKeyMap.getEntityKey(patternId, entityId);
     }
 
     public String sequenceReport() {
@@ -293,7 +282,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public int newNid() {
-        return sequenceMap.nextNid();
+        throw new UnsupportedOperationException();
     }
 
 
@@ -303,19 +292,21 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     }
 
     public long sequenceForNid(int nid) {
-        EntityKey entityKey = this.nidEntityKeyMap.get(nid);
-        return entityKey.elementSequence();
+        return NidCodec6.decodeElementSequence(nid);
+    }
+    public long longKeyForNid(int nid) {
+        return KeyUtil.patternSequenceElementSequenceToLongKey(NidCodec6.decodePatternSequence(nid),
+                NidCodec6.decodeElementSequence(nid));
     }
 
     public int stampSequenceForStampNid(int nid) {
-        EntityKey entityKey = this.nidEntityKeyMap.get(nid);
-        return (int) entityKey.elementSequence();
+        return (int) NidCodec6.decodeElementSequence(nid);
     }
 
     @Override
     public int nidForUuids(UUID... uuids) {
         for (UUID uuid: uuids) {
-            Optional<EntityKey> optionalKey = uuidEntityKeyNidMap.getEntityKey(uuid);
+            Optional<EntityKey> optionalKey = uuidEntityKeyMap.getEntityKey(uuid);
             if (optionalKey.isPresent()) {
                 return optionalKey.get().nid();
             }
@@ -330,7 +321,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public boolean hasUuid(UUID uuid) {
-        return this.uuidEntityKeyNidMap.keyExists(KeyUtil.uuidToByteArray(uuid));
+        return this.uuidEntityKeyMap.keyExists(KeyUtil.uuidToByteArray(uuid));
     }
 
     @Override
@@ -412,13 +403,12 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public byte[] getBytes(int nid) {
-        EntityKey entityKey = this.nidEntityKeyMap.get(nid);
-        return this.entityMap.get(entityKey);
+        return this.entityMap.get(sequenceForNid(nid));
     }
 
     // TODO: Temp, only checks for existence of key in memory.
     public ImmutableList<UUID> getUuids(long longKey) {
-        return uuidEntityKeyNidMap.getUuids(longKey);
+        return uuidEntityKeyMap.getUuids(longKey);
     }
 
 
@@ -428,12 +418,9 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             LOG.error("NID should not be Integer.MIN_VALUE");
             throw new IllegalStateException("NID should not be Integer.MIN_VALUE");
         }
-
-        EntityKey entityKey = this.nidEntityKeyMap.get(nid);
-
         // The put operation does its own merge in a simpler way...
-        this.entityMap.put(entityKey, value);
-        byte[] mergedBytes = this.entityMap.get(entityKey);
+        this.entityMap.put(longKeyForNid(nid), value);
+        byte[] mergedBytes = this.entityMap.get(longKeyForNid(nid));
         if (mergedBytes == null) {
             throw new IllegalStateException("Merged bytes should not be null");
         }

@@ -17,19 +17,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HexFormat;
-import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.BiConsumer;
 import java.util.function.LongConsumer;
 import java.util.function.ObjIntConsumer;
 
@@ -40,7 +35,7 @@ public class EntityMap
 
     private static final Logger LOG = LoggerFactory.getLogger(EntityMap.class);
 
-    private final UuidEntityKeyNidMap uuidEntityKeyNidMap;
+    private final UuidEntityKeyMap uuidEntityKeyMap;
 
     private final AtomicLong writeSequence = new AtomicLong(0);
     final AtomicLong lastFlushedSequence = new AtomicLong();
@@ -143,9 +138,9 @@ public class EntityMap
         }
     });
 
-    public EntityMap(RocksDB db, ColumnFamilyHandle mapHandle, UuidEntityKeyNidMap uuidEntityKeyNidMap) {
+    public EntityMap(RocksDB db, ColumnFamilyHandle mapHandle, UuidEntityKeyMap uuidEntityKeyMap) {
         super(db, mapHandle);
-        this.uuidEntityKeyNidMap = uuidEntityKeyNidMap;
+        this.uuidEntityKeyMap = uuidEntityKeyMap;
         writeThread.setDaemon(true);
         writeThread.start();
     }

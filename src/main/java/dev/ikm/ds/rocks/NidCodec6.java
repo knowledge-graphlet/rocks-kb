@@ -75,6 +75,8 @@ public final class NidCodec6 {
     private static final int ELEMENT_BITS = 26;                // I ∈ [0, 2^26 - 1]
     private static final int PATTERN_MASK = (1 << PATTERN_BITS) - 1;   // 0x3F
     private static final int ELEMENT_MASK = (1 << ELEMENT_BITS) - 1;   // 0x03FF_FFFF
+    public static final int MAX_PATTERN_SEQUENCE = (int) ((1L << PATTERN_BITS) - 1);
+    public static final long MAX_ELEMENT_SEQUENCE = ((1L << ELEMENT_BITS) - 1);
 
     private NidCodec6() { }
 

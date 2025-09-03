@@ -12,6 +12,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static dev.ikm.ds.rocks.NidCodec6.MAX_PATTERN_SEQUENCE;
 import static dev.ikm.tinkar.common.service.PrimitiveDataService.FIRST_NID;
 
 public class SequenceMap extends RocksDbMap<RocksDB> {
@@ -23,46 +24,37 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
      * - In two’s complement, -1 is all 1s. As a 16-bit value: 0xFFFF.
      * - The maximum 16-bit unsigned integer is also 0xFFFF, which equals 65535.
      */
-    public static final int PATTERN_PATTERN_SEQUENCE = 0xFFFF;
+    public static final int PATTERN_PATTERN_SEQUENCE = MAX_PATTERN_SEQUENCE;
 
     private static int nextPatternElementSequence = FIRST_ELEMENT_SEQUENCE_OF_PATTERN;
-    private static int nextNid = FIRST_NID;
     /**
      * TODO: Temporary fixed UUID until patterns entities provide their own pattern PublicId field (currently only semantics do).
      */
     public static final UUID patternPatternUUID = UUID.fromString("8521a438-f84f-4f84-9f99-35aab5b10bd9");
     private static final int patternPatternElementSequence = nextPatternElementSequence++;
-    private static final int patternPatternNid = nextNid++;
 
     public static EntityKey patternPatternEntityKey() {
-        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternPatternElementSequence, patternPatternNid);
+        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternPatternElementSequence);
     }
     /**
      * TODO: Temporary fixed UUID until concepts provide their own pattern PublicId field (currently only semantics do).
      */
     public static final UUID conceptPatternUUID = UUID.fromString("8e9a8888-9d06-45c8-af47-aacc78ed66ee");
     private static final int conceptPatternElementSequence = nextPatternElementSequence++;
-    private static final int conceptPatternNid = nextNid++;
 
     public static EntityKey conceptPatternEntityKey() {
-        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, conceptPatternElementSequence, conceptPatternNid);
+        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, conceptPatternElementSequence);
     }
     /**
      * TODO: Temporary fixed UUID until concepts provide their own pattern PublicId field (currently only semantics do).
      */
     public static final UUID stampPatternUUID = UUID.fromString("15687f5d-6028-4491-b005-7bb6f9f6ebad");
     private static final int stampPatternElementSequence = nextPatternElementSequence++;
-    private static final int stampPatternNid = nextNid++;
 
     public static EntityKey stampPatternEntityKey() {
-        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, stampPatternElementSequence, stampPatternNid);
+        return EntityKey.of(PATTERN_PATTERN_SEQUENCE, stampPatternElementSequence);
     }
 
-
-    /**
-     * NIDS are for backward compatibility. To be removed at some point in the future.
-     */
-    private static final Integer NID_SEQUENCE_KEY = -1;
     /**
      * Map of pattern sequences to atomic counters used to generate a unique, ordered, sequence for each new element.
      */
@@ -99,7 +91,6 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
             } else {
                 // Column family is empty: do identifier bootstrap initialization.
                 nextSequenceMap.put(PATTERN_PATTERN_SEQUENCE, new AtomicLong(nextPatternElementSequence)); // Pattern pattern sequences
-                nextSequenceMap.put(NID_SEQUENCE_KEY, new AtomicLong(nextNid)); // NIDs
             }
         }
     }
@@ -147,17 +138,8 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
         return (int) nextSequenceMap.get(PATTERN_PATTERN_SEQUENCE).getAndIncrement();
     }
 
-    /**
-     * Get the next NID.
-     * @return the next nid.
-     */
-    public int nextNid() {
-        return (int) nextSequenceMap.get(NID_SEQUENCE_KEY).getAndIncrement();
-    }
-
     public Spliterator.OfLong allEntityLongKeySpliterator() {
         Collection<SpliteratorForLongKeyOfPattern> spliterators = nextSequenceMap.entrySet().stream()
-                .filter(entry -> entry.getKey() != NID_SEQUENCE_KEY)
                 .map(entry -> new SpliteratorForLongKeyOfPattern(entry.getKey(), FIRST_ELEMENT_SEQUENCE_OF_PATTERN,
                         entry.getValue().get()))
                 .toList();

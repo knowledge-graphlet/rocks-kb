@@ -35,26 +35,28 @@ public interface EntityKey {
      *
      * @return an integer representing the unique identifier (NID)
      */
-    int nid();
+    default int nid() {
+        return NidCodec6.encode(patternSequence(), elementSequence());
+    }
 
     default byte[] toBytes() {
-        return KeyUtil.bytesToEntityKey(longKey(), nid());
+        return KeyUtil.entityKeyToBytes(longKey());
     }
 
     default EntityKey fromBytes(byte[] bytes) {
-        return KeyUtil.bytesToEntityKey(bytes);
+        return EntityKey.of(KeyUtil.byteArrayToLong(bytes));
     }
 
     default byte[] key() {
         return KeyUtil.patternSequenceElementSequenceToKey(patternSequence(), elementSequence());
     }
 
-    static EntityKey of(int patternSequence, long elementSequence, int nid) {
-        return new EntityKeyRecord(patternSequence, elementSequence, nid);
+    static EntityKey of(int patternSequence, long elementSequence) {
+        return new EntityKeyRecord(patternSequence, elementSequence);
     }
 
-    static EntityKey of(long longKey, int nid) {
-        return new EntityKeyRecord(longKey, nid);
+    static EntityKey of(long longKey) {
+        return new EntityKeyRecord(longKey);
     }
 
     default byte[] patternSequenceAsByteArray() {
@@ -71,21 +73,21 @@ public interface EntityKey {
             return KeyUtil.elementVersionKey(patternSequence(), elementSequence(), stampSequence());
         }
 
-        static EntityVersionKey of(int patternSequence, long elementSequence, int stampSequence, int nid) {
-            return new EntityVersionKeyRecord(patternSequence, elementSequence, nid, stampSequence);
+        static EntityVersionKey of(int patternSequence, long elementSequence, int stampSequence) {
+            return new EntityVersionKeyRecord(patternSequence, elementSequence, stampSequence);
         }
     }
 
-    record EntityKeyRecord(int patternSequence, long elementSequence, int nid) implements EntityKey {
+    record EntityKeyRecord(int patternSequence, long elementSequence) implements EntityKey {
         @Override
         public long longKey() {
             return KeyUtil.patternSequenceElementSequenceToLongKey(patternSequence(), elementSequence());
         }
-        public EntityKeyRecord(long key, int nid) {
-            this(KeyUtil.longKeyToPatternSequence(key), KeyUtil.longKeyToElementSequence(key), nid);
+        public EntityKeyRecord(long longKey) {
+            this(KeyUtil.longKeyToPatternSequence(longKey), KeyUtil.longKeyToElementSequence(longKey));
         }
     }
-    record EntityVersionKeyRecord(int patternSequence, long elementSequence, int nid, int stampSequence) implements EntityVersionKey {
+    record EntityVersionKeyRecord(int patternSequence, long elementSequence, int stampSequence) implements EntityVersionKey {
         @Override
         public long longKey() {
             return KeyUtil.patternSequenceElementSequenceToLongKey(patternSequence(), elementSequence());
