@@ -17,13 +17,13 @@ public interface EntityKey {
 
     /**
      * The pattern sequence. A 16-bit unsigned number.
-     * @return an int >= 0 and < 2^16 (65,536)
+     * @return an int > 0 and < 2^16 (65,536)
      */
     int patternSequence();
 
     /**
      * The element sequence. A 48-bit unsigned number.
-     * @return an int >= 0 and < 2^48 (281,474,976,710,656)
+     * @return an int > 0 and < 2^48 (281,474,976,710,656)
      */
     long elementSequence();
 

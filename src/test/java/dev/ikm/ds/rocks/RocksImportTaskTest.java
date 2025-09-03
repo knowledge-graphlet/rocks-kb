@@ -21,8 +21,8 @@ import java.util.function.ObjIntConsumer;
 
 class RocksImportTaskTest {
     private static final Logger LOG = LoggerFactory.getLogger(RocksImportTaskTest.class);
-    //File importFile = new File("/Users/kec/Solor/snomedct-international-20250101T120000Z+20250813-unreasoned-pb.zip");
-    File importFile = new File("/Users/kec/Solor/gudid-20250804-1.0.0-all-reasoned-pb.zip");
+    File importFile = new File("/Users/kec/Solor/snomedct-international-20250101T120000Z+20250813-unreasoned-pb.zip");
+    //File importFile = new File("/Users/kec/Solor/gudid-20250804-1.0.0-all-reasoned-pb.zip");
 
     @org.junit.jupiter.api.BeforeEach
     void setUp() {
