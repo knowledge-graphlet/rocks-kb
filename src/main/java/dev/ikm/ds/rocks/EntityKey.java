@@ -55,6 +55,10 @@ public interface EntityKey {
         return new EntityKeyRecord(patternSequence, elementSequence);
     }
 
+    static EntityKey ofNid(int nid) {
+        return new EntityKeyRecord(NidCodec6.decodePatternSequence(nid), NidCodec6.decodeElementSequence(nid));
+    }
+
     static EntityKey of(long longKey) {
         return new EntityKeyRecord(longKey);
     }

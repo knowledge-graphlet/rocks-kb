@@ -418,6 +418,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             LOG.error("NID should not be Integer.MIN_VALUE");
             throw new IllegalStateException("NID should not be Integer.MIN_VALUE");
         }
+        switch (sourceObject) {
+            case SemanticEntity semanticEntity -> entityReferencingSemanticMap.add(EntityKey.ofNid(semanticEntity.referencedComponentNid()), EntityKey.ofNid(semanticEntity.nid()));
+            default -> {}
+        }
         // The put operation does its own merge in a simpler way...
         this.entityMap.put(longKeyForNid(nid), value);
         byte[] mergedBytes = this.entityMap.get(longKeyForNid(nid));
