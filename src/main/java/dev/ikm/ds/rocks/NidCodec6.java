@@ -163,6 +163,20 @@ public final class NidCodec6 {
     }
 
     /**
+     * Returns the 64-bit entity long key for the given nid using only bit operations.
+     * Layout: upper 16 bits = patternSequence, lower 48 bits = elementSequence.
+     * No intermediate allocations or method calls.
+     *
+     * @param nid packed nid
+     * @return 64-bit key: [patternSequence:16][elementSequence:48]
+     */
+    public static long longKeyForNid(int nid) {
+        int pattern = (nid >>> ELEMENT_BITS) & PATTERN_MASK;          // 6-bit value in [1..63]
+        long element = (nid & ELEMENT_MASK) + 1L;                      // 48-bit lane (here ≤ 2^26)
+        return (((long) pattern) << 48) | (element & 0xFFFF_FFFF_FFFFL);
+    }
+
+    /**
      * Validates that {@code nid} adheres to this codec.
      *
      * <p>Checks:</p>

@@ -295,8 +295,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         return NidCodec6.decodeElementSequence(nid);
     }
     public long longKeyForNid(int nid) {
-        return KeyUtil.patternSequenceElementSequenceToLongKey(NidCodec6.decodePatternSequence(nid),
-                NidCodec6.decodeElementSequence(nid));
+        return NidCodec6.longKeyForNid(nid);
     }
 
     public int stampSequenceForStampNid(int nid) {
@@ -403,14 +402,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public byte[] getBytes(int nid) {
-        return this.entityMap.get(sequenceForNid(nid));
+        return this.entityMap.get(longKeyForNid(nid));
     }
-
-    // TODO: Temp, only checks for existence of key in memory.
-    public ImmutableList<UUID> getUuids(long longKey) {
-        return uuidEntityKeyMap.getUuids(longKey);
-    }
-
 
     @Override
     public byte[] merge(int nid, int patternNid, int referencedComponentNid, byte[] value, final Object sourceObject, final DataActivity activity) {
