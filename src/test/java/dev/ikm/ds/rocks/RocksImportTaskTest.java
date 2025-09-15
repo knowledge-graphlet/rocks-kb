@@ -58,6 +58,9 @@ class RocksImportTaskTest {
     void compute() {
         try {
             HashSet<UUID> watchList = new HashSet<>();
+            watchList.add(UUID.fromString("8bfba944-3965-3946-9bcb-1e80a5da63a2"));
+            watchList.add(UUID.fromString("d6fad981-7df6-3388-94d8-238cc0465a79"));
+
             RocksImportTask importTask = new RocksImportTask(importFile, RocksProvider.singleton, watchList);
             importTask.compute();
 

@@ -15,6 +15,18 @@
     <version>0.1.0-SNAPSHOT</version>
     <name>Rocks KB</name>
     <description>Aggregator or placeholder for Rocks knowledge base modules.</description>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>dev.ikm.ike</groupId>
+                <artifactId>ike-bom</artifactId>
+                <version>0.1.0-SNAPSHOT</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.eclipse.collections</groupId>
@@ -24,7 +36,28 @@
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>rocksdbjni</artifactId>
+            <version>10.4.2.r1-SNAPSHOT</version>
             <classifier>${platform.classifier}</classifier>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>jna-jpms</artifactId>
+            <version>5.14.0-r2-SNAPSHOT</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>jna-platform-jpms</artifactId>
+            <version>5.14.0-r2-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>

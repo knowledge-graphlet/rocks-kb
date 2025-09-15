@@ -1,13 +1,13 @@
-package dev.ikm.ds.rocks;
+package dev.ikm.ds.rocks.spliterator;
 
 import java.util.Comparator;
-import java.util.Spliterator;
 import java.util.function.LongConsumer;
 
-public class SpliteratorForLongKeyOfPattern implements Spliterator.OfLong, Comparator<SpliteratorForLongKeyOfPattern> {
+public class SpliteratorForLongKeyOfPattern implements LongSpliteratorOfPattern, Comparator<SpliteratorForLongKeyOfPattern> {
     final int patternSequence;
     long currentElementSequence;
     long lastElementExclusive;
+    private final long baseHigh; // upper 16 bits of the long key for this pattern
 
     // Heuristics for CPU-responsiveness (overridable via system properties)
     private static final int RANGES_PER_CPU =
@@ -21,14 +21,15 @@ public class SpliteratorForLongKeyOfPattern implements Spliterator.OfLong, Compa
         this.patternSequence = patternSequence;
         this.currentElementSequence = currentElementSequence;
         this.lastElementExclusive = lastElementExclusive;
+        this.baseHigh = ((long) patternSequence) << 48; // cache once; compose keys via OR
     }
 
     public long getCurrentLongKey() {
-        return KeyUtil.patternSequenceElementSequenceToLongKey(patternSequence, currentElementSequence);
+        return baseHigh | currentElementSequence;
     }
 
     public long getLastLongKeyExclusive() {
-        return KeyUtil.patternSequenceElementSequenceToLongKey(patternSequence, lastElementExclusive);
+        return baseHigh | lastElementExclusive;
     }
 
     public int getPatternSequence() {
@@ -85,8 +86,7 @@ public class SpliteratorForLongKeyOfPattern implements Spliterator.OfLong, Compa
             throw new NullPointerException("action");
         }
         if (currentElementSequence < lastElementExclusive) {
-            long elementSeq = currentElementSequence++; // consume current, then advance
-            long key = KeyUtil.patternSequenceElementSequenceToLongKey(patternSequence, elementSeq);
+            long key = baseHigh | (currentElementSequence++); // compose without allocations or validation
             action.accept(key);
             return true;
         }
@@ -107,4 +107,17 @@ public class SpliteratorForLongKeyOfPattern implements Spliterator.OfLong, Compa
         return patternStr + ":[" + startStr + "–" + endStr + ")";
     }
 
+    // OfPatternLongSpliterator
+    @Override
+    public long peek() {
+        if (currentElementSequence < lastElementExclusive) {
+            return baseHigh | currentElementSequence;
+        }
+        return Long.MIN_VALUE;
+    }
+
+    @Override
+    public int patternSequence() {
+        return patternSequence;
+    }
 }

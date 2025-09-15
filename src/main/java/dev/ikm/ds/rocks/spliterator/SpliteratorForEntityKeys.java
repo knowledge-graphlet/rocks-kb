@@ -1,4 +1,4 @@
-package dev.ikm.ds.rocks;
+package dev.ikm.ds.rocks.spliterator;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;

@@ -3,6 +3,9 @@ package dev.ikm.ds.rocks;
 import dev.ikm.ds.rocks.internal.Get;
 import dev.ikm.ds.rocks.internal.Put;
 import dev.ikm.ds.rocks.maps.*;
+import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
+import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
+import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
 import dev.ikm.tinkar.common.alert.AlertStreams;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.*;
@@ -13,7 +16,9 @@ import dev.ikm.tinkar.provider.search.Indexer;
 import dev.ikm.tinkar.provider.search.RecreateIndex;
 import dev.ikm.tinkar.provider.search.Searcher;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
+import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
 import org.eclipse.collections.api.factory.Lists;
+import org.eclipse.collections.api.factory.primitive.LongLists;
 import org.eclipse.collections.api.list.ImmutableList;
 import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.list.primitive.ImmutableIntList;
@@ -217,6 +222,11 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         } catch (RocksDBException e) {
             throw new RuntimeException(e);
         }
+        try {
+            this.indexer.commit();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
@@ -276,6 +286,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         return uuidEntityKeyMap.getEntityKey(patternId, entityId);
     }
 
+    public Optional<EntityKey> getEntityKey(UUID uuid) {
+        return uuidEntityKeyMap.getEntityKey(uuid);
+    }
+
     public String sequenceReport() {
         return sequenceMap.sequenceReport();
     }
@@ -291,9 +305,13 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         return writeSequence.sum();
     }
 
-    public long sequenceForNid(int nid) {
+    public long elementSequenceForNid(int nid) {
         return NidCodec6.decodeElementSequence(nid);
     }
+    public int patternSequenceForNid(int nid) {
+        return NidCodec6.decodePatternSequence(nid);
+    }
+
     public long longKeyForNid(int nid) {
         return NidCodec6.longKeyForNid(nid);
     }
@@ -342,11 +360,15 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     public void forEachParallel(ObjIntConsumer<byte[]> action) {
         // 1) Build a list of SpliteratorForLongKeyOfPattern ranges from the all-entity spliterator
         Spliterator.OfLong allEntityKeys = this.sequenceMap.allEntityLongKeySpliterator();
-        java.util.ArrayList<dev.ikm.ds.rocks.SpliteratorForLongKeyOfPattern> ranges = new java.util.ArrayList<>();
+        forEachParallel(action, allEntityKeys);
+    }
+
+    private void forEachParallel(ObjIntConsumer<byte[]> action, Spliterator.OfLong entityKeys) {
+        MutableList<SpliteratorForLongKeyOfPattern> ranges = Lists.mutable.empty();
 
         // Keep splitting until we can’t split anymore; collect per-pattern ranges
-        java.util.ArrayDeque<Spliterator.OfLong> queue = new java.util.ArrayDeque<>();
-        queue.add(allEntityKeys);
+        ArrayDeque<Spliterator.OfLong> queue = new ArrayDeque<>();
+        queue.add(entityKeys);
 
         while (!queue.isEmpty()) {
             Spliterator.OfLong s = queue.pollFirst();
@@ -383,7 +405,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
             for (SpliteratorForLongKeyOfPattern range : ranges) {
                 scope.fork(() -> {
-                    this.entityMap.scanEntitiesInRange(range, action);
+                    this.entityMap.scanEntitiesInRange((LongSpliteratorOfPattern) range, action);
                     return null;
                 });
             }
@@ -397,7 +419,14 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public void forEachParallel(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
-        throw new UnsupportedOperationException();
+        MutableLongCollection longCollection = LongLists.mutable.withInitialCapacity(nids.size());
+        nids.collectLong(nid -> NidCodec6.longKeyForNid(nid), longCollection);
+        longCollection = longCollection.toSortedList();
+        long[] keys = longCollection.toArray();
+        ImmutableList<LongSpliteratorOfPattern> parts = SortedLongArraySpliteratorOfPattern.of(keys);
+        for (LongSpliteratorOfPattern part : parts) {
+            this.entityMap.scanEntitiesInRange(part, action);
+        }
     }
 
     @Override
@@ -432,7 +461,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public PrimitiveDataSearchResult[] search(String query, int maxResultSize) throws Exception {
-        throw new UnsupportedOperationException();
+        return this.searcher.search(query, maxResultSize);
     }
 
     @Override
@@ -450,37 +479,94 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public void forEachSemanticNidOfPattern(int patternNid, IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        int patternSequence = (int) NidCodec6.decodeElementSequence(patternNid);
+        LongSpliteratorOfPattern spliteratorOfPattern = this.sequenceMap.spliteratorOfPattern(patternSequence);
+        spliteratorOfPattern.forEachRemaining((LongConsumer) longKey -> procedure.accept(NidCodec6.nidForLongKey(longKey)));
     }
 
     @Override
     public void forEachPatternNid(IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        sequenceMap.spliteratorOfPatterns().forEachRemaining((LongConsumer) longKey -> procedure.accept(NidCodec6.nidForLongKey(longKey)));
     }
 
     @Override
     public void forEachConceptNid(IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        forEachSemanticNidOfPattern(
+                NidCodec6.decodePatternSequence(Binding.Concept.pattern().nid()), procedure);
     }
 
     @Override
     public void forEachStampNid(IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        forEachSemanticNidOfPattern(NidCodec6.decodePatternSequence(Binding.Stamp.pattern().nid()), procedure);
     }
 
     @Override
     public void forEachSemanticNid(IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        BitSet excludedPatternSequences = new BitSet();
+        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(Binding.Concept.pattern().nid()));
+        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(Binding.Stamp.pattern().nid()));
+        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(Binding.Pattern.pattern().nid()));
+
+        ImmutableList<SpliteratorForLongKeyOfPattern> semanticSpliterators = this.sequenceMap.allPatternSpliterators().select(spliterator -> !excludedPatternSequences.get(spliterator.patternSequence()));
+
+        // Create a list to collect all the sub-spliterators
+        MutableList<Spliterator.OfLong> subSpliterators = Lists.mutable.empty();
+
+        // Process each semantic spliterator
+        for (SpliteratorForLongKeyOfPattern semanticSpliterator : semanticSpliterators) {
+            // Keep splitting until we get chunks of the appropriate size
+            Deque<Spliterator.OfLong> queue = new ArrayDeque<>();
+            queue.add(semanticSpliterator);
+
+            while (!queue.isEmpty()) {
+                Spliterator.OfLong current = queue.poll();
+                long estimatedSize = current.estimateSize();
+
+                // Target chunk size - adjust this value based on your needs
+                int targetChunkSize = 10000;
+
+                if (estimatedSize > targetChunkSize) {
+                    Spliterator.OfLong split = current.trySplit();
+                    if (split != null) {
+                        queue.add(split);
+                        queue.add(current);
+                        continue;
+                    }
+                }
+
+                subSpliterators.add(current);
+            }
+        }
+
+        LOG.info("Split into {} sub-tasks for parallel processing", subSpliterators.size());
+
+        // Process chunks in parallel using structured concurrency
+        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+            for (Spliterator.OfLong subSpliterator : subSpliterators) {
+                scope.fork(() -> {
+                    subSpliterator.forEachRemaining((LongConsumer) longKey ->
+                            procedure.accept(NidCodec6.nidForLongKey(longKey)));
+                    return null;
+                });
+            }
+            scope.join();
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public void forEachSemanticNidForComponent(int componentNid, IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeys(NidCodec6.longKeyForNid(componentNid));
+        referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 
     @Override
     public void forEachSemanticNidForComponentOfPattern(int componentNid, int patternNid, IntProcedure procedure) {
-        throw new UnsupportedOperationException();
+        ImmutableList<EntityKey> referencingEntityKeys = this.entityReferencingSemanticMap.getReferencingEntityKeysOfPattern(NidCodec6.longKeyForNid(componentNid), (int) NidCodec6.decodeElementSequence(patternNid));
+        referencingEntityKeys.forEach(entityKey -> procedure.accept(entityKey.nid()));
     }
 
     @Override

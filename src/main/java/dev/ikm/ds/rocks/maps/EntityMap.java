@@ -2,7 +2,7 @@ package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.ds.rocks.KeyUtil;
 import dev.ikm.ds.rocks.EntityKey;
-import dev.ikm.ds.rocks.SpliteratorForLongKeyOfPattern;
+import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.internal.Get;
 import dev.ikm.tinkar.common.service.PrimitiveDataService;
 import io.activej.bytebuf.ByteBuf;
@@ -402,7 +402,7 @@ public class EntityMap
     }
 
 
-    public void scanEntitiesInRange(SpliteratorForLongKeyOfPattern spliterator,
+    public void scanEntitiesInRange(LongSpliteratorOfPattern spliterator,
                                     ObjIntConsumer<byte[]> entityHandler) {
         Objects.requireNonNull(entityHandler, "entityHandler");
 
@@ -412,7 +412,7 @@ public class EntityMap
                                       .setTotalOrderSeek(false)
                                       .setSnapshot(s);
              final RocksIterator it = rocksIterator(ro)) {
-            byte[] firstPrefix = KeyUtil.longToByteArray(spliterator.getCurrentLongKey());
+            byte[] firstPrefix = KeyUtil.longToByteArray(spliterator.peek());
             it.seek(firstPrefix);
 
             if (it.isValid()) {

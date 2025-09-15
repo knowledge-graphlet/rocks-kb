@@ -197,19 +197,18 @@ public class KeyUtil {
     }
 
     public static EntityKey entityKeyToBytes(byte[] entityKeyBytes) {
-        return EntityKey.of(byteArrayToLong(entityKeyBytes));
+        return EntityKey.ofLongKey(byteArrayToLong(entityKeyBytes));
     }
 
     public static byte[] entityReferencingSemanticKey(EntityKey entityKey, EntityKey referencingEntityKey) {
         long baseLong = entityKey.longKey();
         long refLong = referencingEntityKey.longKey();
-        int refNid = referencingEntityKey.nid();
 
         // Validate long keys (consistent with other utilities)
         EntityKey.checkLongKey(baseLong);
         EntityKey.checkLongKey(refLong);
 
-        byte[] result = new byte[20];
+        byte[] result = new byte[16];
 
         // baseLong (8 bytes, big-endian)
         result[0] = (byte) (baseLong >>> 56);
@@ -230,12 +229,6 @@ public class KeyUtil {
         result[13] = (byte) (refLong >>> 16);
         result[14] = (byte) (refLong >>> 8);
         result[15] = (byte) refLong;
-
-        // refNid (4 bytes, big-endian)
-        result[16] = (byte) (refNid >>> 24);
-        result[17] = (byte) (refNid >>> 16);
-        result[18] = (byte) (refNid >>> 8);
-        result[19] = (byte) refNid;
 
         return result;
     }
@@ -261,7 +254,7 @@ public class KeyUtil {
 
         // Validate and construct
         EntityKey.checkLongKey(refLongKey);
-        return EntityKey.of(refLongKey);
+        return EntityKey.ofLongKey(refLongKey);
     }
 
 }

@@ -3,10 +3,12 @@ package dev.ikm.ds.rocks.maps;
 
 import dev.ikm.ds.rocks.KeyUtil;
 import dev.ikm.ds.rocks.EntityKey;
+import dev.ikm.ds.rocks.RocksImportTask;
 import dev.ikm.tinkar.common.id.PublicId;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -16,12 +18,15 @@ import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.ImmutableList;
 import org.eclipse.collections.api.list.MutableList;
 import org.rocksdb.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static dev.ikm.ds.rocks.maps.SequenceMap.PATTERN_PATTERN_SEQUENCE;
 import static dev.ikm.ds.rocks.maps.SequenceMap.patternPatternEntityKey;
 
 public class UuidEntityKeyMap
         extends RocksDbMap<RocksDB> {
+    private static final Logger LOG = LoggerFactory.getLogger(UuidEntityKeyMap.class);
     enum Mode {
         /**
          * UUIDs are not yet stored in the {@code uuidEntityKeyMap} and the db has not been checked for values.
@@ -165,7 +170,7 @@ public class UuidEntityKeyMap
                 // The column family is empty, subsequent imports will put all UUID/EntityKey pairs into the uuidEntityKeyMap.
                 memoryMode.set(Mode.ALL_IN_MEMORY);
                 // Bootstrap with pattern UUIDs for Pattern, Concept, and Stamp entities.
-                uuidEntityKeyMap.put(SequenceMap.patternPatternUUID, patternPatternEntityKey());
+                uuidEntityKeyMap.put(SequenceMap.PATTERN_PATTERN_UUID, patternPatternEntityKey());
                 uuidEntityKeyMap.put(SequenceMap.conceptPatternUUID, SequenceMap.conceptPatternEntityKey());
                 uuidEntityKeyMap.put(SequenceMap.stampPatternUUID, SequenceMap.stampPatternEntityKey());
             }
@@ -193,6 +198,15 @@ public class UuidEntityKeyMap
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
+        if (RocksImportTask.SCOPED_WATCH_LIST.isBound()) {
+            Set<UUID> watchList = RocksImportTask.SCOPED_WATCH_LIST.get();
+            Set<UUID> values = patternId.asUuidList().toSet();
+            values.addAll(entityId.asUuidList().toSet());
+
+            if (watchList.stream().anyMatch(values::contains)) {
+                LOG.info("Watch in public id found: patternId {} and entityId {} found", patternId, entityId);
+            }
+        }
 
         EntityKey patternKey = ScopedValue.where(ENTITY_PUBLIC_ID, patternId).call(() ->
                 switch (patternId.uuidCount()) {
@@ -219,6 +233,14 @@ public class UuidEntityKeyMap
     private EntityKey makeEntityKey(UUID uuid) {
         return getEntityKey(uuid).orElseGet(() -> {
             EntityKey patternKey = PATTERN_ENTITY_KEY.get();
+            // If the enclosing pattern is the "Pattern" pattern, this is a Pattern entity.
+            // Ensure it lives under PATTERN_PATTERN_SEQUENCE, not under the pattern's own sequence (e.g., 1 -> 0x04...).
+            if (patternKey.equals(SequenceMap.patternPatternEntityKey())) {
+                int patternSequence = PATTERN_PATTERN_SEQUENCE;
+                long patternElementSequence = this.sequenceMap.nextPatternSequence();
+                return EntityKey.of(patternSequence, patternElementSequence);
+            }
+            // Regular entities: use the pattern's own sequence bucket (elementSequence allocated within that bucket).
             int patternSequence = (int) patternKey.elementSequence();
             long patternElementSequence = this.sequenceMap.nextElementSequence(patternSequence);
             return EntityKey.of(patternSequence, patternElementSequence);
@@ -228,6 +250,9 @@ public class UuidEntityKeyMap
     private EntityKey makePatternEntityKey(UUID uuid) {
         return getEntityKey(uuid).orElseGet(() -> {
             int patternSequence = this.sequenceMap.nextPatternSequence();
+            if (patternSequence == 1) {
+                LOG.warn("Pattern sequence 1 is reserved for the pattern entity key");
+            }
             EntityKey patternEntityKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, patternSequence);
             return patternEntityKey;
         });
@@ -253,12 +278,26 @@ public class UuidEntityKeyMap
                     }
                 }
             } else {
-                entityKey = creator.apply(entityPublicId.asUuidArray()[0]);
+                UUID[] uuids = entityPublicId.asUuidArray();
+                entityKey = creator.apply(uuids[0]);
+                for (int i = 1; i < uuids.length; i++) {
+                    addUuidToEntityKeyMap(uuids[i], entityKey);
+                }
             }
         } finally {
             uuidLockTable.unlock(entityPublicId);
         }
         return entityKey;
+    }
+
+    private void addUuidToEntityKeyMap(UUID uuid, EntityKey entityKey) {
+        uuidEntityKeyMap.put(uuid, entityKey);
+        if (memoryMode.get() == Mode.CACHING) {
+            byte[] keyBytes = KeyUtil.uuidToByteArray(uuid);
+            if (!keyExists(keyBytes)) {
+                put(keyBytes, entityKey.toBytes());
+            }
+        }
     }
 
     public Optional<EntityKey> getEntityKey(UUID uuid) {

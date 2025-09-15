@@ -176,6 +176,12 @@ public final class NidCodec6 {
         return (((long) pattern) << 48) | (element & 0xFFFF_FFFF_FFFFL);
     }
 
+    public static int nidForLongKey(long longKey) {
+       int patternSequence = KeyUtil.longKeyToPatternSequence( longKey);
+       long elementSequence = KeyUtil.longKeyToElementSequence(longKey);
+       return encode(patternSequence, elementSequence);
+
+    }
     /**
      * Validates that {@code nid} adheres to this codec.
      *

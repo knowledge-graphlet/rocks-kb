@@ -45,7 +45,20 @@ public class EntityReferencingSemanticMap
     }
 
     public ImmutableList<EntityKey> getReferencingEntityKeys(EntityKey entityKey) {
-        byte[] prefix = KeyUtil.longToByteArray(entityKey.longKey());
+        return getReferencingEntityKeys(entityKey.longKey());
+    }
+
+    public ImmutableList<EntityKey> getReferencingEntityKeysOfPattern(EntityKey entityKey, EntityKey patternEntityKey) {
+        ImmutableList<EntityKey> referencingEntityKeys = getReferencingEntityKeys(entityKey.longKey());
+        return referencingEntityKeys.select(referencingEntityKey -> referencingEntityKey.patternSequence() == patternEntityKey.patternSequence());
+    }
+    public ImmutableList<EntityKey> getReferencingEntityKeysOfPattern(long entityKey, int patternSequence) {
+        ImmutableList<EntityKey> referencingEntityKeys = getReferencingEntityKeys(entityKey);
+        return referencingEntityKeys.select(referencingEntityKey -> referencingEntityKey.patternSequence() == patternSequence);
+    }
+
+    public ImmutableList<EntityKey> getReferencingEntityKeys(long longKey) {
+        byte[] prefix = KeyUtil.longToByteArray(longKey);
         MutableList<EntityKey> results = Lists.mutable.empty();
 
         try (RocksIterator it = rocksIterator()) {

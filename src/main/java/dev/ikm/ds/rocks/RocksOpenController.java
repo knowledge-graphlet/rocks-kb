@@ -9,7 +9,7 @@ public class RocksOpenController extends RocksController {
 
     @Override
     public boolean isValidDataLocation(String name) {
-        return name.equals("rocksdb");
+        return name.equals("rocks");
     }
 
     @Override

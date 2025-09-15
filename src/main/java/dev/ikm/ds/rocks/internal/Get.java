@@ -29,7 +29,7 @@ public class Get {
     }
 
     public static long sequenceForNid(int nid) {
-        return singleton.sequenceForNid(nid);
+        return singleton.elementSequenceForNid(nid);
     }
     public static int stampSequenceForStampNid(int stampNid) {
         return singleton.stampSequenceForStampNid(stampNid);

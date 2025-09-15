@@ -7,6 +7,8 @@ import dev.ikm.tinkar.entity.ChangeSetWriterService;
 import dev.ikm.tinkar.entity.EntityService;
 
 module ikm.rocks {
+    exports dev.ikm.ds.rocks;
+    exports dev.ikm.ds.rocks.spliterator;
     requires dev.ikm.jpms.activej.bytebuf;
     requires dev.ikm.jpms.protobuf;
     requires dev.ikm.rocksdb.jpms;
@@ -18,6 +20,7 @@ module ikm.rocks {
     requires dev.ikm.tinkar.terms;
     requires org.eclipse.collections.api;
     requires org.slf4j;
+    requires org.eclipse.collections.impl;
 
     provides DataServiceController
             with RocksOpenController, RocksNewController;

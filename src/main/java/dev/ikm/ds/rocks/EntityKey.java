@@ -44,7 +44,7 @@ public interface EntityKey {
     }
 
     default EntityKey fromBytes(byte[] bytes) {
-        return EntityKey.of(KeyUtil.byteArrayToLong(bytes));
+        return EntityKey.ofLongKey(KeyUtil.byteArrayToLong(bytes));
     }
 
     default byte[] key() {
@@ -59,7 +59,7 @@ public interface EntityKey {
         return new EntityKeyRecord(NidCodec6.decodePatternSequence(nid), NidCodec6.decodeElementSequence(nid));
     }
 
-    static EntityKey of(long longKey) {
+    static EntityKey ofLongKey(long longKey) {
         return new EntityKeyRecord(longKey);
     }
 

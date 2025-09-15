@@ -1,15 +1,22 @@
 package dev.ikm.ds.rocks;
 
-import dev.ikm.ds.rocks.maps.EntityMap;
+import dev.ikm.ds.rocks.maps.UuidEntityKeyMap;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.TrackingCallable;
 import dev.ikm.tinkar.common.util.io.CountingInputStream;
+import dev.ikm.tinkar.coordinate.Coordinates;
+import dev.ikm.tinkar.coordinate.language.LanguageCoordinate;
+import dev.ikm.tinkar.coordinate.language.calculator.LanguageCalculatorWithCache;
+import dev.ikm.tinkar.coordinate.stamp.StampCoordinate;
 import dev.ikm.tinkar.entity.*;
 import dev.ikm.tinkar.entity.transform.TinkarSchemaToEntityTransformer;
+import dev.ikm.tinkar.schema.PatternChronology;
 import dev.ikm.tinkar.schema.SemanticChronology;
 import dev.ikm.tinkar.schema.TinkarMsg;
 import dev.ikm.tinkar.terms.EntityProxy;
+import org.eclipse.collections.api.factory.Lists;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +52,8 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
     private final AtomicLong importStampCount = new AtomicLong();
     private final Set<UUID> watchList;
 
-    private final ScopedValue<TinkarMsg> SCOPED_TINKAR_MSG = ScopedValue.newInstance();
+    public static final ScopedValue<TinkarMsg> SCOPED_TINKAR_MSG = ScopedValue.newInstance();
+    public static final ScopedValue<Set<UUID>> SCOPED_WATCH_LIST = ScopedValue.newInstance();
 
     public RocksImportTask(File importFile, RocksProvider provider) {
         this(importFile, provider, Collections.emptySet());
@@ -80,6 +88,7 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
 
         // Pass 1: generate identifiers for all entities
         EntityService.get().beginLoadPhase();
+        List<UUID> patternUuids = new ArrayList<>();
         try (FileInputStream fileIn = new FileInputStream(importFile);
              BufferedInputStream buffIn = new BufferedInputStream(fileIn, InputStreamBufferSize);
              CountingInputStream countingIn = new CountingInputStream(buffIn);
@@ -97,7 +106,8 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
                             permits.acquire();
                             scope.fork(() -> {
                                 try {
-                                    ScopedValue.where(SCOPED_TINKAR_MSG, pbTinkarMsg).call(() -> {
+                                    ScopedValue.where(SCOPED_TINKAR_MSG, pbTinkarMsg)
+                                            .where(SCOPED_WATCH_LIST, watchList).call(() -> {
                                         if (pbTinkarMsg != null) {
                                             // Batch progress updates to prevent hanging the UI thread
                                             if (identifierCount.incrementAndGet() % 1000 == 0) {
@@ -115,6 +125,12 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
                                                 case VALUE_NOT_SET ->
                                                         throw new IllegalStateException("Tinkar message value not set");
                                             };
+                                            if (pbTinkarMsg.getValueCase().getNumber() == TinkarMsg.ValueCase.PATTERN_CHRONOLOGY.getNumber()) {
+                                                PatternChronology patternChronology = pbTinkarMsg.getPatternChronology();
+                                                String uuidStr = patternChronology.getPublicId().getUuidsList().get(0);
+                                                UUID uuid = UUID.fromString(uuidStr);
+                                                patternUuids.add(uuid);
+                                            }
                                         }
                                         return null;
 
@@ -187,9 +203,48 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
                             return null;
                         }));
                     }
+                    LOG.info("Starting scope.join");
                     scope.join();
+                    LOG.info("Finished scope.join");
 
                 }
+            }
+            LOG.info("Sequence report: {} ", this.provider.sequenceReport());
+            StringBuilder stringBuilder = new StringBuilder();
+
+            patternUuids.forEach(patternUuid -> {
+                int nid = provider.nidForUuids(patternUuid);
+                EntityKey entityKey = provider.getEntityKey(patternUuid).get();
+                PatternEntity patternEntity = EntityService.get().getEntityFast(nid);
+                StampCoordinate stampCoordinate = Coordinates.Stamp.DevelopmentLatest();
+//                LanguageCalculatorWithCache languageCalculator = new LanguageCalculatorWithCache(stampCoordinate.toStampCoordinateRecord(),
+//                        Lists.immutable.of(Coordinates.Language.UsEnglishFullyQualifiedName(), Coordinates.Language.AnyLanguageRegularName()));
+//
+//                String entityText = languageCalculator.getPreferredDescriptionTextOrNid(nid);
+                String entityText = PrimitiveData.textWithNid(nid);
+                stringBuilder.append("\n\nPattern: ").append(entityText).append(" EntityKey: ").append(entityKey);
+                stringBuilder.append("\n nid=").append(nid).append(" (0x").append(String.format("%08X", nid)).append(")").append(" pattern sequence=").append(NidCodec6.decodePatternSequence(nid)).append(" element sequence=").append(NidCodec6.decodeElementSequence(nid));
+                stringBuilder.append("\nPatternEntity: ").append(patternEntity);
+            });
+
+            LOG.info("PatternInfo:\n {}", stringBuilder);
+
+            LOG.info("Imported {} entities", String.format("%,d", importCount.get()));
+            LOG.info("Checking watchList: {} ", watchList);
+            for (UUID uuid : watchList) {
+                StringBuilder sb = new StringBuilder();
+                Optional<EntityKey> entityKey = provider.getEntityKey(uuid);
+                int nid = provider.nidForUuids(uuid);
+                int patternSequence = provider.patternSequenceForNid(nid);
+                long elementSequence = provider.elementSequenceForNid(nid);
+                byte[] entityBytes = provider.getBytes(nid);
+                sb.append("\n\nnid for ").append(uuid).append(" is: ").append(nid);
+                sb.append("\npatternSequence for ").append(uuid).append(" is: ").append(patternSequence);
+                sb.append("\nelementSequence for ").append(uuid).append(" is: ").append(elementSequence);
+                sb.append("\nentityBytes for ").append(uuid).append(" is: ").append(Arrays.toString(entityBytes));
+                sb.append("\nentityKey for ").append(uuid).append(" is: ").append(entityKey);
+                sb.append("\nText with nid: ").append(PrimitiveData.textWithNid(nid));
+                LOG.info(sb.toString());
             }
         } catch (IOException e) {
             updateTitle("Import Protobuf Data from " + importFile.getName() + " with error(s)");
@@ -218,12 +273,16 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
 
     private int makeNid(EntityProxy.Pattern pattern, dev.ikm.tinkar.schema.PublicId pbPublicId) {
         PublicId publicId = getEntityPublicId(pbPublicId);
+        int nid = makeNid(pattern, getEntityPublicId(pbPublicId));
         for (UUID uuid : publicId.asUuidArray()) {
             if (watchList.contains(uuid)) {
                 LOG.info("Found watch: {} for: \n\n{}", uuid, SCOPED_TINKAR_MSG.get());
+                LOG.info("nid for {} is: {}", uuid, nid);
+                LOG.info("nid for {} in hex is: {}", uuid, Integer.toHexString(nid));
+                LOG.info("EntityKey for {} is: {}", uuid, EntityKey.ofNid(nid));
             }
         }
-        return makeNid(pattern, getEntityPublicId(pbPublicId));
+        return nid;
     }
 
     private static PublicId getEntityPublicId(dev.ikm.tinkar.schema.PublicId pbPublicId) {
@@ -234,6 +293,11 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
 
     private int makeNid(EntityProxy.Pattern pattern, PublicId entityId) {
         // Create the UUID -> Nid map here...
+        if (SCOPED_WATCH_LIST.isBound()) {
+
+        } else {
+            LOG.info("Watch list not bound");
+        }
         EntityKey entityKey = this.provider.getEntityKey(pattern.publicId(), entityId);
         return entityKey.nid();
     }
