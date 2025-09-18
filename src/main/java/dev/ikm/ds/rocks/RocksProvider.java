@@ -8,6 +8,7 @@ import dev.ikm.ds.rocks.spliterator.SortedLongArraySpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
 import dev.ikm.tinkar.common.alert.AlertStreams;
 import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.*;
 import dev.ikm.tinkar.common.util.io.FileUtil;
 import dev.ikm.tinkar.common.util.time.Stopwatch;
@@ -36,8 +37,11 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.atomic.LongAdder;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongConsumer;
 import java.util.function.ObjIntConsumer;
+
+import static dev.ikm.tinkar.common.service.PrimitiveData.SCOPED_PATTERN_PUBLICID_FOR_NID;
 
 public class RocksProvider implements PrimitiveDataService, NidGenerator {
     private static final Logger LOG = LoggerFactory.getLogger(RocksProvider.class);
@@ -105,6 +109,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     public static RocksProvider singleton;
 
     private final Cache blockCache;
+    private final AtomicBoolean closing = new AtomicBoolean(false);
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     public RocksProvider() throws IOException {
         Stopwatch stopwatch = new Stopwatch();
@@ -175,6 +181,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             uuidEntityKeyMap = new UuidEntityKeyMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_MAP), sequenceMap);
             entityMap = new EntityMap(db, getHandle(ColumnFamily.ENTITY_MAP), uuidEntityKeyMap);
         } catch (RocksDBException e) {
+            // Close ColumnFamilyOptions/Table configs if open failed
+            safeCloseColumnFamilyDescriptors();
             throw new RuntimeException(e);
         }
 
@@ -204,7 +212,39 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         LOG.info("Opened RocksProvider in: " + stopwatch.durationString());
     }
 
+    private void safeCloseColumnFamilyDescriptors() {
+        if (this.columnDescriptors != null) {
+            for (ColumnFamilyDescriptor d : this.columnDescriptors) {
+                try {
+                    ColumnFamilyOptions opts = d.getOptions();
+                    if (opts != null) {
+                        // Close nested table config first
+                        try {
+                            TableFormatConfig tfc = opts.tableFormatConfig();
+                            if (tfc instanceof BlockBasedTableConfig bbtc) {
+                                try {
+                                    Filter f = bbtc.filterPolicy();
+                                    if (f != null) f.close();
+                                } catch (Throwable ignore) {}
+                            }
+                        } catch (Throwable ignore) {}
+                        opts.close();
+                    }
+                } catch (Throwable t) {
+                    LOG.debug("Error closing ColumnFamilyOptions", t);
+                }
+            }
+        }
+    }
+
+    private void checkOpen() {
+        if (closed.get() || closing.get()) {
+            throw new IllegalStateException("RocksProvider is closed");
+        }
+    }
+
     public RocksDB getDb() {
+        checkOpen();
         return db;
     }
 
@@ -213,6 +253,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     }
 
     public void save() {
+        checkOpen();
         entityMap.save();
         entityReferencingSemanticMap.save();
         sequenceMap.save();
@@ -231,6 +272,34 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public void close() {
+        // Flush and sync DB and index first
+        try {
+            save();
+        } catch (Exception e) {
+            LOG.warn("Error while saving during close", e);
+        }
+        LOG.info("Closing RocksProvider...");
+        try {
+            if (this.indexer != null) {
+                this.indexer.close();
+            }
+        } catch (Exception e) {
+            LOG.warn("Error closing Indexer: {}", e.getMessage(), e);
+        }
+
+        if (!closing.compareAndSet(false, true)) {
+            return;
+        }
+
+        // Prevent new calls during shutdown
+        Get.singleton = null;
+        Put.singleton = null;
+
+        // TODO: Best effort: ensure no app tasks are still running on this provider before shutdown.
+        // TODO: If you have executors or scopes retained, join/cancel here.
+
+
+        // Close maps (they will flush and close column family handles they own)
         try {
             if (this.entityMap != null) {
                 this.entityMap.close();
@@ -259,6 +328,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         } catch (Exception e) {
             LOG.warn("Error closing sequenceMap", e);
         }
+
+        // Close DB after column family handles are closed
         try {
             if (this.db != null) {
                 this.db.close();
@@ -266,6 +337,15 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         } catch (Exception e) {
             LOG.warn("Error closing RocksDB", e);
         }
+
+        // Close ColumnFamilyOptions / Table configs to release native resources deterministically
+        try {
+            safeCloseColumnFamilyDescriptors();
+        } catch (Exception e) {
+            LOG.warn("Error closing ColumnFamilyOptions", e);
+        }
+
+        // Close cache
         try {
             if (this.blockCache != null) {
                 this.blockCache.close();
@@ -273,13 +353,9 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         } catch (Exception e) {
             LOG.warn("Error closing blockCache", e);
         }
-        try {
-            if (this.indexer != null) {
-                this.indexer.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing Indexer: {}", e.getMessage(), e);
-        }
+
+        closed.set(true);
+        LOG.info("RocksProvider closed.");
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
@@ -327,6 +403,11 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             if (optionalKey.isPresent()) {
                 return optionalKey.get().nid();
             }
+        }
+        if (SCOPED_PATTERN_PUBLICID_FOR_NID.isBound()) {
+            PublicId patternPublicId = SCOPED_PATTERN_PUBLICID_FOR_NID.get();
+            EntityKey stampEntityKey = uuidEntityKeyMap.getEntityKey(patternPublicId, PublicIds.of(uuids));
+            return stampEntityKey.nid();
         }
         throw new IllegalStateException("No entity key found for UUIDs: " + Arrays.toString(uuids));
     }
@@ -431,11 +512,13 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     @Override
     public byte[] getBytes(int nid) {
+        checkOpen();
         return this.entityMap.get(longKeyForNid(nid));
     }
 
     @Override
     public byte[] merge(int nid, int patternNid, int referencedComponentNid, byte[] value, final Object sourceObject, final DataActivity activity) {
+        checkOpen();
         if (nid == Integer.MIN_VALUE) {
             LOG.error("NID should not be Integer.MIN_VALUE");
             throw new IllegalStateException("NID should not be Integer.MIN_VALUE");

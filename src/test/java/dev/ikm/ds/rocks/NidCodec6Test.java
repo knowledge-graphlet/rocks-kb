@@ -24,12 +24,11 @@ class NidCodec6Test {
                 "1,2",
                 "2,1",
                 "5,123456",
-                "63,67108864",
-                // Boundaries around element sequence
+                "63,1000000",
+                // Boundaries around element sequence for new encoding (no -1; element ∈ [1 .. 2^26-1])
                 "10,1",
                 "10,2",
                 "10,67108863",
-                "10,67108864",
                 // Boundaries around pattern sequence
                 "1,100",
                 "63,100"
@@ -49,11 +48,14 @@ class NidCodec6Test {
             for (int i = 0; i < 10_000; i++) {
                 int pattern = 1 + r.nextInt(63); // [1,63]
                 long element = 1L + (r.nextInt(1 << 20) | ((long) r.nextInt(1 << 6) << 20));
-                // Ensure element within [1, 2^26]
-                element = 1L + (element - 1) % (1L << 26);
-                // Avoid the two forbidden mappings explicitly
-                if (pattern == 32 && element == 1) { element = 2; }
-                if (pattern == 31 && element == (1L << 26)) { element--; }
+                // Ensure element within [1, 2^26-1] with direct packing
+                element = 1L + (element - 1) % ((1L << 26) - 1);
+
+                // Avoid the single forbidden upper-edge pair that would map to Integer.MAX_VALUE
+                if (pattern == 31 && element == ((1L << 26) - 1)) {
+                    element--; // move inside range
+                }
+
                 int nid = NidCodec6.encode(pattern, element);
                 assertEquals(pattern, NidCodec6.decodePatternSequence(nid));
                 assertEquals(element, NidCodec6.decodeElementSequence(nid));
@@ -74,7 +76,7 @@ class NidCodec6Test {
         }
 
         @ParameterizedTest
-        @ValueSource(longs = {0L, -1L, 67108865L, Long.MAX_VALUE})
+        @ValueSource(longs = {0L, -1L, (1L << 26), Long.MAX_VALUE})
         void invalidElementRejected(long element) {
             IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                     () -> NidCodec6.encode(1, element));
@@ -82,19 +84,11 @@ class NidCodec6Test {
         }
 
         @Test
-        @DisplayName("Forbidden pair (32,1) → Integer.MIN_VALUE is rejected")
-        void forbiddenMinValue() {
-            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                    () -> NidCodec6.encode(32, 1));
-            assertTrue(ex.getMessage().contains("Forbidden nid mapping"));
-        }
-
-        @Test
-        @DisplayName("Forbidden pair (31, 67,108,864) → Integer.MAX_VALUE is rejected")
+        @DisplayName("Forbidden pair (31, 2^26 - 1) → Integer.MAX_VALUE is rejected")
         void forbiddenMaxValue() {
             IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                    () -> NidCodec6.encode(31, 1L << 26));
-            assertTrue(ex.getMessage().contains("Forbidden nid mapping"));
+                    () -> NidCodec6.encode(31, (1L << 26) - 1));
+            assertTrue(ex.getMessage().contains("Forbidden"));
         }
     }
 
@@ -124,6 +118,16 @@ class NidCodec6Test {
         void validateAcceptsValidNid() {
             int nid = NidCodec6.encode(7, 12345);
             assertDoesNotThrow(() -> NidCodec6.validateNid(nid));
+        }
+
+        @Test
+        @DisplayName("MIN_VALUE cannot be produced under new constraints")
+        void minValueUnreachable() {
+            // Ensure no valid (pattern, element) encodes to Integer.MIN_VALUE
+            int pattern = 32;
+            long element = 1; // minimal allowed
+            int nid = NidCodec6.encode(pattern, element);
+            assertNotEquals(Integer.MIN_VALUE, nid);
         }
     }
 }

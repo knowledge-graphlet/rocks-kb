@@ -13,7 +13,7 @@
     <groupId>dev.ikm.ike</groupId>
     <artifactId>rocks-kb</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <name>Rocks KB</name>
+    <name>Rocks KB ${project.version}</name>
     <description>Aggregator or placeholder for Rocks knowledge base modules.</description>
     <dependencyManagement>
         <dependencies>
@@ -117,4 +117,17 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-XX:+UseCompactObjectHeaders --enable-preview -Xms32g -Xmx32g </argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>

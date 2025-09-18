@@ -72,7 +72,7 @@ package dev.ikm.ds.rocks;
 public final class NidCodec6 {
     // Layout constants
     private static final int PATTERN_BITS = 6;                 // P ∈ [1, 63]
-    private static final int ELEMENT_BITS = 26;                // I ∈ [0, 2^26 - 1]
+    private static final int ELEMENT_BITS = 26;                // element ∈ [0, 2^26 - 1]
     private static final int PATTERN_MASK = (1 << PATTERN_BITS) - 1;   // 0x3F
     private static final int ELEMENT_MASK = (1 << ELEMENT_BITS) - 1;   // 0x03FF_FFFF
     public static final int MAX_PATTERN_SEQUENCE = (int) ((1L << PATTERN_BITS) - 1);
@@ -81,28 +81,9 @@ public final class NidCodec6 {
     private NidCodec6() { }
 
     /**
-     * Encodes {@code (patternSequence, elementSequence)} into a 32-bit {@code nid}.
-     *
-     * <p>Preconditions:</p>
-     * <ul>
-     *   <li>{@code 1 <= patternSequence <= 63}</li>
-     *   <li>{@code 1 <= elementSequence <= 67_108_864}</li>
-     *   <li>Rejects pairs mapping to {@code Integer.MIN_VALUE} and
-     *       {@code Integer.MAX_VALUE}:
-     *       {@code (32,1)} and {@code (31,67_108_864)}</li>
-     * </ul>
-     *
-     * <p>Computation:</p>
-     * <pre>{@code
-     * I   = elementSequence - 1
-     * nid = (patternSequence << 26) | I
-     * }</pre>
-     *
-     * @param patternSequence unsigned pattern in [1, 63]
-     * @param elementSequence unsigned element in [1, 67_108_864]
-     * @return packed {@code nid}
-     * @throws IllegalArgumentException if arguments are out of range or map to a
-     *                                  forbidden {@code nid}
+     * Encodes (patternSequence, elementSequence) into a 32-bit nid.
+     * Inputs must start at 1; elementSequence=0 is forbidden.
+     * Also forbids the single upper-edge pair (31, 2^26 - 1) to avoid Integer.MAX_VALUE.
      */
     public static int encode(int patternSequence, long elementSequence) {
         if (patternSequence <= 0 || patternSequence > PATTERN_MASK) {
@@ -110,107 +91,76 @@ public final class NidCodec6 {
                     "patternSequence out of range (1..63): " + patternSequence
             );
         }
-        if (elementSequence <= 0 || elementSequence > (1L << ELEMENT_BITS)) {
+        // Inputs start at 1, and never attain the absolute maximum value.
+        if (elementSequence <= 0 || elementSequence > MAX_ELEMENT_SEQUENCE) { // [1 .. 2^26 - 1]
             throw new IllegalArgumentException(
-                    "elementSequence out of range (1..67,108,864): " + elementSequence
+                    "elementSequence out of range (1..67,108,863): " + elementSequence
             );
         }
 
-        int elementIndex = (int) (elementSequence - 1); // I ∈ [0, 2^26 - 1]
-        int nid = (patternSequence << ELEMENT_BITS) | elementIndex;
-
-        // Reject the two forbidden mappings
-        if (nid == Integer.MIN_VALUE || nid == Integer.MAX_VALUE) {
+        // Forbid the only remaining MAX_VALUE producer under direct packing:
+        // pattern=31 and element lane all 1s (2^26 - 1).
+        if (patternSequence == 31 && elementSequence == MAX_ELEMENT_SEQUENCE) {
             throw new IllegalArgumentException(
-                    "Forbidden nid mapping for pair (pattern=" + patternSequence
-                            + ", element=" + elementSequence + ")"
+                    "Forbidden pair for MAX_VALUE mapping: (pattern=31, element=" + elementSequence + ")"
             );
+        }
+
+        int elementBits = (int) (elementSequence & ELEMENT_MASK); // direct pack, no -1
+        int nid = (patternSequence << ELEMENT_BITS) | elementBits;
+
+        // Defensive check against Integer.MIN_VALUE (should be unreachable because elementSequence>=1):
+        if (nid == Integer.MIN_VALUE) {
+            throw new IllegalStateException("Unexpected MIN_VALUE nid after encoding");
         }
         return nid;
     }
 
     /**
-     * Extracts {@code patternSequence} from {@code nid}.
-     *
-     * <p>Computation:</p>
-     * <pre>{@code
-     * P = (nid >>> 26) & 0x3F
-     * }</pre>
-     *
-     * @param nid packed {@code nid}
-     * @return {@code patternSequence} in [0, 63]; caller should validate
-     *         {@code != 0} if required by domain
+     * Extracts patternSequence from nid.
      */
     public static int decodePatternSequence(int nid) {
         return (nid >>> ELEMENT_BITS) & PATTERN_MASK;
     }
 
     /**
-     * Extracts {@code elementSequence} from {@code nid}.
-     *
-     * <p>Computation:</p>
-     * <pre>{@code
-     * I =  nid & 0x03FF_FFFF
-     * E = I + 1
-     * }</pre>
-     *
-     * @param nid packed {@code nid}
-     * @return {@code elementSequence} in [1, 67_108_864]
+     * Extracts elementSequence from nid.
+     * Direct mapping (no +1): elementSequence ∈ [1 .. 2^26 - 1]
      */
     public static long decodeElementSequence(int nid) {
-        int elementIndex = nid & ELEMENT_MASK;
-        return 1L + (elementIndex & ELEMENT_MASK);
+        return (long) (nid & ELEMENT_MASK);
     }
 
     /**
-     * Returns the 64-bit entity long key for the given nid using only bit operations.
-     * Layout: upper 16 bits = patternSequence, lower 48 bits = elementSequence.
-     * No intermediate allocations or method calls.
-     *
-     * @param nid packed nid
-     * @return 64-bit key: [patternSequence:16][elementSequence:48]
+     * 64-bit key: [patternSequence:16][elementSequence:48]
      */
     public static long longKeyForNid(int nid) {
-        int pattern = (nid >>> ELEMENT_BITS) & PATTERN_MASK;          // 6-bit value in [1..63]
-        long element = (nid & ELEMENT_MASK) + 1L;                      // 48-bit lane (here ≤ 2^26)
+        int pattern = (nid >>> ELEMENT_BITS) & PATTERN_MASK;
+        long element = (nid & ELEMENT_MASK); // direct, no +1
         return (((long) pattern) << 48) | (element & 0xFFFF_FFFF_FFFFL);
     }
 
-    public static int nidForLongKey(long longKey) {
-       int patternSequence = KeyUtil.longKeyToPatternSequence( longKey);
-       long elementSequence = KeyUtil.longKeyToElementSequence(longKey);
-       return encode(patternSequence, elementSequence);
-
-    }
-    /**
-     * Validates that {@code nid} adheres to this codec.
-     *
-     * <p>Checks:</p>
-     * <ul>
-     *   <li>{@code nid} is not {@code 0}, {@code Integer.MIN_VALUE},
-     *       {@code Integer.MAX_VALUE}</li>
-     *   <li>Decoded {@code patternSequence} in [1, 63]</li>
-     *   <li>Decoded {@code elementSequence} in [1, 67_108_864]</li>
-     * </ul>
-     *
-     * @param nid packed {@code nid}
-     * @throws IllegalArgumentException if validation fails
-     */
     public static void validateNid(int nid) {
         if (nid == 0 || nid == Integer.MIN_VALUE || nid == Integer.MAX_VALUE) {
             throw new IllegalArgumentException("Forbidden nid value: " + nid);
         }
         int pattern = decodePatternSequence(nid);
         if (pattern <= 0 || pattern > PATTERN_MASK) {
-            throw new IllegalArgumentException(
-                    "Decoded patternSequence out of range: " + pattern
-            );
+            throw new IllegalArgumentException("Decoded patternSequence out of range: " + pattern);
         }
         long elementSeq = decodeElementSequence(nid);
-        if (elementSeq <= 0 || elementSeq > (1L << ELEMENT_BITS)) {
-            throw new IllegalArgumentException(
-                    "Decoded elementSequence out of range: " + elementSeq
-            );
+        if (elementSeq <= 0 || elementSeq > MAX_ELEMENT_SEQUENCE) { // [1 .. 2^26 - 1]
+            throw new IllegalArgumentException("Decoded elementSequence out of range: " + elementSeq);
         }
+        // Also forbid (31, 2^26 - 1) by value check
+        if (pattern == 31 && elementSeq == MAX_ELEMENT_SEQUENCE) {
+            throw new IllegalArgumentException("Decoded forbidden pair for MAX_VALUE mapping");
+        }
+    }
+
+    public static int nidForLongKey(long longKey) {
+        int pattern = KeyUtil.longKeyToPatternSequence(longKey);
+        long element = KeyUtil.longKeyToElementSequence(longKey);
+        return encode(pattern, element);
     }
 }

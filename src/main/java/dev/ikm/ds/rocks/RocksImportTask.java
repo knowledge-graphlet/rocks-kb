@@ -25,6 +25,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.StructuredTaskScope;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -88,7 +89,7 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
 
         // Pass 1: generate identifiers for all entities
         EntityService.get().beginLoadPhase();
-        List<UUID> patternUuids = new ArrayList<>();
+        CopyOnWriteArrayList<UUID> patternUuids = new CopyOnWriteArrayList<>();
         try (FileInputStream fileIn = new FileInputStream(importFile);
              BufferedInputStream buffIn = new BufferedInputStream(fileIn, InputStreamBufferSize);
              CountingInputStream countingIn = new CountingInputStream(buffIn);
@@ -135,6 +136,9 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
                                         return null;
 
                                     });
+                                } catch (Throwable t) {
+                                    LOG.error("Unhandled exception in identifier subtask for msg: {}", pbTinkarMsg, t);
+                                    throw t; // preserve failure semantics
                                 } finally {
                                     permits.release();
                                 }
