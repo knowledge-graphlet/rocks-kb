@@ -1,6 +1,5 @@
 package dev.ikm.ds.rocks.maps;
 
-import dev.ikm.ds.rocks.Binding;
 import dev.ikm.ds.rocks.KeyUtil;
 import dev.ikm.ds.rocks.EntityKey;
 import dev.ikm.ds.rocks.NidCodec6;
@@ -8,8 +7,7 @@ import dev.ikm.ds.rocks.spliterator.LongSpliteratorOfPattern;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForEntityKeys;
 import dev.ikm.ds.rocks.spliterator.SpliteratorForLongKeyOfPattern;
 import dev.ikm.tinkar.common.service.PrimitiveData;
-import dev.ikm.tinkar.entity.VersionProxy;
-import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.list.ImmutableList;
 import org.eclipse.collections.impl.factory.Lists;
 import org.rocksdb.*;
@@ -19,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.LongConsumer;
 
 import static dev.ikm.ds.rocks.NidCodec6.MAX_PATTERN_SEQUENCE;
 
@@ -29,7 +26,7 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
     public static final int FIRST_ELEMENT_SEQUENCE_OF_PATTERN = 1;
     private static int nextPatternElementSequence = FIRST_ELEMENT_SEQUENCE_OF_PATTERN;
 
-    public static final UUID PATTERN_PATTERN_UUID = Binding.Pattern.pattern().asUuidArray()[0];
+    public static final UUID PATTERN_PATTERN_UUID = EntityBinding.Pattern.pattern().asUuidArray()[0];
     private static final int patternPatternElementSequence = nextPatternElementSequence++;
 
     /**

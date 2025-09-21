@@ -16,6 +16,7 @@ import dev.ikm.tinkar.entity.*;
 import dev.ikm.tinkar.provider.search.Indexer;
 import dev.ikm.tinkar.provider.search.RecreateIndex;
 import dev.ikm.tinkar.provider.search.Searcher;
+import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
 import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
 import org.eclipse.collections.api.factory.Lists;
@@ -575,20 +576,20 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     @Override
     public void forEachConceptNid(IntProcedure procedure) {
         forEachSemanticNidOfPattern(
-                NidCodec6.decodePatternSequence(Binding.Concept.pattern().nid()), procedure);
+                NidCodec6.decodePatternSequence(EntityBinding.Concept.pattern().nid()), procedure);
     }
 
     @Override
     public void forEachStampNid(IntProcedure procedure) {
-        forEachSemanticNidOfPattern(NidCodec6.decodePatternSequence(Binding.Stamp.pattern().nid()), procedure);
+        forEachSemanticNidOfPattern(NidCodec6.decodePatternSequence(EntityBinding.Stamp.pattern().nid()), procedure);
     }
 
     @Override
     public void forEachSemanticNid(IntProcedure procedure) {
         BitSet excludedPatternSequences = new BitSet();
-        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(Binding.Concept.pattern().nid()));
-        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(Binding.Stamp.pattern().nid()));
-        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(Binding.Pattern.pattern().nid()));
+        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(EntityBinding.Concept.pattern().nid()));
+        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(EntityBinding.Stamp.pattern().nid()));
+        excludedPatternSequences.set((int) NidCodec6.decodeElementSequence(EntityBinding.Pattern.pattern().nid()));
 
         ImmutableList<SpliteratorForLongKeyOfPattern> semanticSpliterators = this.sequenceMap.allPatternSpliterators().select(spliterator -> !excludedPatternSequences.get(spliterator.patternSequence()));
 

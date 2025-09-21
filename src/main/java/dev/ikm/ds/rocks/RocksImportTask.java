@@ -15,6 +15,7 @@ import dev.ikm.tinkar.entity.transform.TinkarSchemaToEntityTransformer;
 import dev.ikm.tinkar.schema.PatternChronology;
 import dev.ikm.tinkar.schema.SemanticChronology;
 import dev.ikm.tinkar.schema.TinkarMsg;
+import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.EntityProxy;
 import org.eclipse.collections.api.factory.Lists;
 import org.slf4j.Logger;
@@ -116,13 +117,13 @@ public class RocksImportTask extends TrackingCallable<EntityCountSummary> {
                                             }
                                             int nid = switch (pbTinkarMsg.getValueCase()) {
                                                 case CONCEPT_CHRONOLOGY ->
-                                                        makeNid(Binding.Concept.pattern(), pbTinkarMsg.getConceptChronology().getPublicId());
+                                                        makeNid(EntityBinding.Concept.pattern(), pbTinkarMsg.getConceptChronology().getPublicId());
                                                 case SEMANTIC_CHRONOLOGY ->
                                                         makeNid(pbTinkarMsg.getSemanticChronology());
                                                 case PATTERN_CHRONOLOGY ->
-                                                        makeNid(Binding.Pattern.pattern(), pbTinkarMsg.getPatternChronology().getPublicId());
+                                                        makeNid(EntityBinding.Pattern.pattern(), pbTinkarMsg.getPatternChronology().getPublicId());
                                                 case STAMP_CHRONOLOGY ->
-                                                        makeNid(Binding.Stamp.pattern(), pbTinkarMsg.getStampChronology().getPublicId());
+                                                        makeNid(EntityBinding.Stamp.pattern(), pbTinkarMsg.getStampChronology().getPublicId());
                                                 case VALUE_NOT_SET ->
                                                         throw new IllegalStateException("Tinkar message value not set");
                                             };

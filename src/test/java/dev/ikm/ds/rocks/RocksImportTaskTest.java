@@ -7,6 +7,7 @@ import dev.ikm.tinkar.component.FieldDataType;
 import dev.ikm.tinkar.entity.util.EntityCounter;
 import dev.ikm.tinkar.entity.util.EntityProcessor;
 import dev.ikm.tinkar.entity.util.EntityRealizer;
+import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.TinkarTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,14 +37,14 @@ class RocksImportTaskTest {
         controller.setDataUriOption(new DataUriOption("snomedct-international", importFile.toURI()));
         PrimitiveData.setController(controller);
         controller.start();
-        EntityKey key1 = RocksProvider.singleton.getEntityKey(Binding.Stamp.pattern(), PublicIds.of(PrimitiveData.NONEXISTENT_STAMP_UUID));
-        EntityKey key2 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.AUTHOR_FOR_VERSION);
-        EntityKey key3 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.UNINITIALIZED_COMPONENT);
-        EntityKey key4 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.PRIMORDIAL_STATE);
-        EntityKey key5 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.ACTIVE_STATE);
-        EntityKey key6 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.INACTIVE_STATE);
-        EntityKey key7 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.WITHDRAWN_STATE);
-        EntityKey key8 = RocksProvider.singleton.getEntityKey(Binding.Concept.pattern(), TinkarTerm.CANCELED_STATE);
+        EntityKey key1 = RocksProvider.singleton.getEntityKey(EntityBinding.Stamp.pattern(), PublicIds.of(PrimitiveData.NONEXISTENT_STAMP_UUID));
+        EntityKey key2 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.AUTHOR_FOR_VERSION);
+        EntityKey key3 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.UNINITIALIZED_COMPONENT);
+        EntityKey key4 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.PRIMORDIAL_STATE);
+        EntityKey key5 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.ACTIVE_STATE);
+        EntityKey key6 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.INACTIVE_STATE);
+        EntityKey key7 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.WITHDRAWN_STATE);
+        EntityKey key8 = RocksProvider.singleton.getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.CANCELED_STATE);
         LOG.info("Finished setting up RocksImportTaskTest");
     }
 
