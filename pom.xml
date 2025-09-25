@@ -13,7 +13,7 @@
     <groupId>dev.ikm.ike</groupId>
     <artifactId>rocks-kb</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <name>Rocks KB ${project.version}</name>
+    <name>Rocks KB</name>
     <description>Aggregator or placeholder for Rocks knowledge base modules.</description>
     <dependencyManagement>
         <dependencies>
