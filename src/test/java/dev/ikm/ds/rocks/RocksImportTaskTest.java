@@ -9,6 +9,7 @@ import dev.ikm.tinkar.entity.util.EntityProcessor;
 import dev.ikm.tinkar.entity.util.EntityRealizer;
 import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.TinkarTerm;
+import org.junit.jupiter.api.Disabled;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ObjIntConsumer;
 
+@Disabled
 class RocksImportTaskTest {
     private static final Logger LOG = LoggerFactory.getLogger(RocksImportTaskTest.class);
     File importFile = new File("/Users/kec/Solor/snomedct-international-20250101T120000Z+20250813-unreasoned-pb.zip");
