@@ -524,6 +524,14 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             LOG.error("NID should not be Integer.MIN_VALUE");
             throw new IllegalStateException("NID should not be Integer.MIN_VALUE");
         }
+        if (nid == 0) {
+            LOG.error("NID should not be 0");
+            throw new IllegalStateException("NID should not be 0");
+        }
+        if (nid == Integer.MAX_VALUE) {
+            LOG.error("NID should not be Integer.MAX_VALUE");
+            throw new IllegalStateException("NID should not be Integer.MAX_VALUE");
+        }
         switch (sourceObject) {
             case SemanticEntity semanticEntity -> entityReferencingSemanticMap.add(EntityKey.ofNid(semanticEntity.referencedComponentNid()), EntityKey.ofNid(semanticEntity.nid()));
             default -> {}
@@ -536,9 +544,9 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         }
 
         this.writeSequence.increment();
-        // TODO: Add back in change set writer service.
-        //ImmutableList<ChangeSetWriterService> changeSetWriterServices = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
-        //changeSetWriterServices.forEach(writerService -> writerService.writeToChangeSet((Entity) sourceObject, activity));
+
+        ImmutableList<ChangeSetWriterService> changeSetWriterServices = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
+        changeSetWriterServices.forEach(writerService -> writerService.writeToChangeSet((Entity) sourceObject, activity));
         this.indexer.index(sourceObject);
         return mergedBytes;
     }
