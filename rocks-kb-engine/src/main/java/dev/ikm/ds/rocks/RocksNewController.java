@@ -10,6 +10,8 @@ import org.eclipse.collections.api.factory.Maps;
 import org.eclipse.collections.api.map.ImmutableMap;
 import org.eclipse.collections.api.map.MutableMap;
 import org.rocksdb.RocksDBException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -20,8 +22,11 @@ import java.util.List;
 import java.util.ServiceLoader;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class RocksNewController extends RocksController {
+    private static final Logger LOG = LoggerFactory.getLogger(RocksNewController.class);
+    private static final AtomicBoolean started = new AtomicBoolean(false);
     public static boolean loading = false;
     public static String CONTROLLER_NAME = "New Spined Array Store";
     public static final DataServiceProperty NEW_FOLDER_PROPERTY = new DataServiceProperty("New folder name", false, true);
@@ -97,24 +102,27 @@ public class RocksNewController extends RocksController {
 
     @Override
     public void start() {
-        if (RocksProvider.singleton == null) {
-            RocksNewController.loading = true;
+        if (started.compareAndSet(false, true)) {
             try {
-                //File rootFolder = new File(System.getProperty("user.home"), "Solor");
-                File rootFolder = new File("target");
+                RocksNewController.loading = true;
+                File rootFolder = new File(System.getProperty("user.home"), "Solor");
                 File dataDirectory = new File(rootFolder, providerProperties.get(NEW_FOLDER_PROPERTY));
                 ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, dataDirectory);
-                RocksProvider rocksProvider = new RocksProvider();
+                RocksProvider.get();
 
-//                ServiceLoader<LoadDataFromFileController> controllerFinder = PluggableService.load(LoadDataFromFileController.class);
-//                LoadDataFromFileController loader = controllerFinder.findFirst().get();
-//                Future<EntityCountSummary> loadFuture = (Future<EntityCountSummary>) loader.load(new File(importDataFileString));
-//                EntityCountSummary count = loadFuture.get();
-//                Get.singleton.save();
-            } catch (IOException e) {
+                ServiceLoader<LoadDataFromFileController> controllerFinder = PluggableService.load(LoadDataFromFileController.class);
+                LoadDataFromFileController loader = controllerFinder.findFirst().get();
+                Future<EntityCountSummary> loadFuture = (Future<EntityCountSummary>) loader.load(new File(importDataFileString));
+                EntityCountSummary count = loadFuture.get();
+                LOG.info("RocksKB loaded: " + count.toString() + "");
+                RocksProvider.get().save();
+            } catch (Exception e) {
                 throw new RuntimeException(e);
+            } finally {
+                RocksNewController.loading = false;
             }
-            RocksNewController.loading = false;
+        } else {
+            LOG.info("Attempt to start RokcsKb, but RocksKB is already started");
         }
     }
 

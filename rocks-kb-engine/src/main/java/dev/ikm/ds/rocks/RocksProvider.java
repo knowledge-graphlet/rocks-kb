@@ -33,10 +33,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.StructuredTaskScope;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.LongConsumer;
@@ -53,6 +50,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     private LongAdder writeSequence = new LongAdder();
 
+    final Semaphore startupShutdownSemaphore = new Semaphore(1);
     final Indexer indexer;
     final Searcher searcher;
     final String name;
@@ -69,6 +67,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     public void scanEntitiesInRange(LongSpliteratorOfPattern range, ObjIntConsumer<byte[]> entityHandler) {
         entityMap.scanEntitiesInRange(range, entityHandler);
+    }
+
+    public RocksDB getDb() {
+        return db;
     }
 
     public enum ColumnFamily {
@@ -111,110 +113,119 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         return changeSetWriters.toImmutable();
     }
 
-    public static RocksProvider singleton;
+
+    public static RocksProvider get() {
+        try {
+            return stableProvider.orElseSet(RocksProvider::new);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+    private static StableValue<RocksProvider> stableProvider = StableValue.of();
 
     private final Cache blockCache;
     private final AtomicBoolean closing = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    public RocksProvider() throws IOException {
-        Stopwatch stopwatch = new Stopwatch();
-        if (singleton != null) {
-            throw new IllegalStateException("Singleton already exists");
-        }
-        singleton = this;
-        Get.singleton = this;
-        Put.singleton = this;
-
-        LOG.info("Opening " + this.getClass().getSimpleName());
-        File configuredRoot = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
-        this.name = configuredRoot.getName();
-        configuredRoot.mkdirs();
-        LOG.info("Datastore root: " + configuredRoot.getAbsolutePath());
-        File rockFiles = new File(configuredRoot, "rocks");
-        boolean kbExists = rockFiles.exists();
-        rockFiles.mkdirs();
-        new File(configuredRoot, "rocks-logs").mkdirs();
-
-
-        RocksDB.loadLibrary();
-        configuredRoot.mkdirs();
-
-        this.blockCache = new LRUCache(defaultCacheSize);
-        this.columnDescriptors = Arrays.stream(ColumnFamily.values())
-                .map(cf -> {
-
-                    BlockBasedTableConfig tableCfg = new BlockBasedTableConfig()
-                            .setBlockCache(this.blockCache)
-                            .setFilterPolicy(new BloomFilter(cf.bloomFilterBitsPerKey, /*useBlockBasedBuilder*/ false))
-                            .setWholeKeyFiltering(false)                    // favor prefix Bloom (when prefix extractor is configured)
-                            .setCacheIndexAndFilterBlocks(true)            // keep index/filter hot
-                            .setPinL0FilterAndIndexBlocksInCache(true)     // optional
-                            .setBlockSize(16 * 1024)                       // 16 KB data blocks (tune for your workload)
-                            .setChecksumType(ChecksumType.kXXH3)           // modern checksum
-                            .setFormatVersion(5)                           // stable table format
-                            .setPartitionFilters(true);                    // scalable filters for large data
-
-                    ColumnFamilyOptions cfo = new ColumnFamilyOptions();
-                    cfo.setCompressionType(CompressionType.NO_COMPRESSION);
-                    cfo.setTableFormatConfig(tableCfg);
-                    cfo.setWriteBufferSize(cf.writeBufferSize);
-                    if (cf.keyPrefixBytes >= 0) {
-                        cfo.useFixedLengthPrefixExtractor(cf.keyPrefixBytes);
-                    }
-
-                    return new ColumnFamilyDescriptor(cf.getValue(), cfo);
-                }).toList();
-
-        try (DBOptions options = new DBOptions()
-                .setCreateIfMissing(true)
-                .setCreateMissingColumnFamilies(true)
-                .setIncreaseParallelism(Runtime.getRuntime().availableProcessors())
-                .setMaxBackgroundJobs(Math.max(8, Runtime.getRuntime().availableProcessors()))
-                .setAllowConcurrentMemtableWrite(true)
-                .setEnablePipelinedWrite(true)
-                .setBytesPerSync(8 * 1024 * 1024)
-                .setWalBytesPerSync(8 * 1024 * 1024)
-                // Configure RocksDB log directory (creates LOG, LOG.old.* here)
-                .setDbLogDir(Path.of(configuredRoot.getPath(), "rocks-logs").toString())
-                // Optional: adjust verbosity of RocksDB's internal logging
-                .setInfoLogLevel(InfoLogLevel.INFO_LEVEL)
-        ) {
-            db = RocksDB.open(options, rockFiles.getAbsolutePath(), columnDescriptors, columnHandles);
-            entityReferencingSemanticMap = new EntityReferencingSemanticMap(db, getHandle(ColumnFamily.ENTITY_REFERENCING_SEMANTIC_MAP));
-            sequenceMap = new SequenceMap(db, getHandle(ColumnFamily.DEFAULT));
-            uuidEntityKeyMap = new UuidEntityKeyMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_MAP), sequenceMap);
-            entityMap = new EntityMap(db, getHandle(ColumnFamily.ENTITY_MAP), uuidEntityKeyMap);
-        } catch (RocksDBException e) {
-            // Close ColumnFamilyOptions/Table configs if open failed
-            safeCloseColumnFamilyDescriptors();
-            throw new RuntimeException(e);
-        }
-
-        Path indexPath = Path.of(configuredRoot.getPath(),"lucene");
-        boolean indexExists = Files.exists(indexPath);
-        Indexer indexer;
+    private RocksProvider() {
+        startupShutdownSemaphore.acquireUninterruptibly();
         try {
-            indexer = new Indexer(indexPath);
-        } catch (IllegalArgumentException ex) {
-            // If Indexer Codec does not match, then delete and rebuild with new Codec
-            FileUtil.recursiveDelete(indexPath.toFile());
-            indexExists = Files.exists(indexPath);
-            indexer = new Indexer(indexPath);
-        }
-        this.indexer = indexer;
-        this.searcher = new Searcher();
-        if (kbExists && !indexExists) {
-            try {
-                this.recreateLuceneIndex().get();
-            } catch (Exception e) {
-                LOG.error(e.getLocalizedMessage(), e);
+            Stopwatch stopwatch = new Stopwatch();
+            LOG.info("Opening " + this.getClass().getSimpleName());
+            File configuredRoot = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
+            this.name = configuredRoot.getName();
+            configuredRoot.mkdirs();
+            LOG.info("Datastore root: " + configuredRoot.getAbsolutePath());
+            File rockFiles = new File(configuredRoot, "rocks");
+            boolean kbExists = rockFiles.exists();
+            rockFiles.mkdirs();
+            new File(configuredRoot, "rocks-logs").mkdirs();
+
+            RocksDB.loadLibrary();
+            configuredRoot.mkdirs();
+
+            this.blockCache = new LRUCache(defaultCacheSize);
+            this.columnDescriptors = Arrays.stream(ColumnFamily.values())
+                    .map(cf -> {
+
+                        BlockBasedTableConfig tableCfg = new BlockBasedTableConfig()
+                                .setBlockCache(this.blockCache)
+                                .setFilterPolicy(new BloomFilter(cf.bloomFilterBitsPerKey, /*useBlockBasedBuilder*/ false))
+                                .setWholeKeyFiltering(false)                    // favor prefix Bloom (when prefix extractor is configured)
+                                .setCacheIndexAndFilterBlocks(true)            // keep index/filter hot
+                                .setPinL0FilterAndIndexBlocksInCache(true)     // optional
+                                .setBlockSize(16 * 1024)                       // 16 KB data blocks (tune for your workload)
+                                .setChecksumType(ChecksumType.kXXH3)           // modern checksum
+                                .setFormatVersion(5)                           // stable table format
+                                .setPartitionFilters(true);                    // scalable filters for large data
+
+                        ColumnFamilyOptions cfo = new ColumnFamilyOptions();
+                        cfo.setCompressionType(CompressionType.NO_COMPRESSION);
+                        cfo.setTableFormatConfig(tableCfg);
+                        cfo.setWriteBufferSize(cf.writeBufferSize);
+                        if (cf.keyPrefixBytes >= 0) {
+                            cfo.useFixedLengthPrefixExtractor(cf.keyPrefixBytes);
+                        }
+
+                        return new ColumnFamilyDescriptor(cf.getValue(), cfo);
+                    }).toList();
+
+            try (DBOptions options = new DBOptions()
+                    .setCreateIfMissing(true)
+                    .setCreateMissingColumnFamilies(true)
+                    .setIncreaseParallelism(Runtime.getRuntime().availableProcessors())
+                    .setMaxBackgroundJobs(Math.max(8, Runtime.getRuntime().availableProcessors()))
+                    .setAllowConcurrentMemtableWrite(true)
+                    .setEnablePipelinedWrite(true)
+                    .setBytesPerSync(8 * 1024 * 1024)
+                    .setWalBytesPerSync(8 * 1024 * 1024)
+                    // Configure RocksDB log directory (creates LOG, LOG.old.* here)
+                    .setDbLogDir(Path.of(configuredRoot.getPath(), "rocks-logs").toString())
+                    // Optional: adjust verbosity of RocksDB's internal logging
+                    .setInfoLogLevel(InfoLogLevel.INFO_LEVEL)
+            ) {
+                db = RocksDB.open(options, rockFiles.getAbsolutePath(), columnDescriptors, columnHandles);
+                entityReferencingSemanticMap = new EntityReferencingSemanticMap(db, getHandle(ColumnFamily.ENTITY_REFERENCING_SEMANTIC_MAP));
+                sequenceMap = new SequenceMap(db, getHandle(ColumnFamily.DEFAULT));
+                uuidEntityKeyMap = new UuidEntityKeyMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_MAP), sequenceMap);
+                entityMap = new EntityMap(db, getHandle(ColumnFamily.ENTITY_MAP), uuidEntityKeyMap);
+            } catch (RocksDBException e) {
+                // Close ColumnFamilyOptions/Table configs if open failed
+                safeCloseColumnFamilyDescriptors();
+                throw new RuntimeException(e);
             }
+
+            Path indexPath = Path.of(configuredRoot.getPath(), "lucene");
+            boolean indexExists = Files.exists(indexPath);
+            Indexer indexer;
+            try {
+                try {
+                    indexer = new Indexer(indexPath);
+                } catch (IllegalArgumentException ex) {
+                    // If Indexer Codec does not match, then delete and rebuild with new Codec
+                    FileUtil.recursiveDelete(indexPath.toFile());
+                    indexExists = Files.exists(indexPath);
+                    indexer = new Indexer(indexPath);
+                }
+                this.indexer = indexer;
+                this.searcher = new Searcher();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+            if (kbExists && !indexExists) {
+                try {
+                    this.recreateLuceneIndex().get();
+                } catch (Exception e) {
+                    LOG.error(e.getLocalizedMessage(), e);
+                }
+            }
+            // Prime TypeAheadSearch
+            //TypeAheadSearch.get();
+            stopwatch.stop();
+            LOG.info("Opened RocksProvider in: " + stopwatch.durationString());
+        } finally {
+            startupShutdownSemaphore.release();
         }
-        // Prime TypeAheadSearch
-        //TypeAheadSearch.get();
-        stopwatch.stop();
-        LOG.info("Opened RocksProvider in: " + stopwatch.durationString());
     }
 
     private void safeCloseColumnFamilyDescriptors() {
@@ -248,11 +259,6 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         }
     }
 
-    public RocksDB getDb() {
-        checkOpen();
-        return db;
-    }
-    
     public ImmutableList<SpliteratorForLongKeyOfPattern> allPatternSpliterators() {
         return this.sequenceMap.allPatternSpliterators();
     }
@@ -279,92 +285,97 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         }
     }
 
+    public boolean running() {
+        return !closed.get() && !closing.get();
+    }
+
     @Override
     public void close() {
-        // Flush and sync DB and index first
+        startupShutdownSemaphore.acquireUninterruptibly();
         try {
-            save();
-        } catch (Exception e) {
-            LOG.warn("Error while saving during close", e);
-        }
-        LOG.info("Closing RocksProvider...");
-        try {
-            if (this.indexer != null) {
-                this.indexer.close();
+            if (closed.get()) {
+                LOG.info("Called close() but RocksProvider already closed.");
+            } else {
+                // Flush and sync DB and index first
+                try {
+                    save();
+                } catch (Exception e) {
+                    LOG.warn("Error while saving during close", e);
+                }
+                LOG.info("Closing RocksProvider...");
+                try {
+                    if (this.indexer != null) {
+                        this.indexer.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing Indexer: {}", e.getMessage(), e);
+                }
+
+                if (!closing.compareAndSet(false, true)) {
+                    return;
+                }
+
+                // Close maps (they will flush and close column family handles they own)
+                try {
+                    if (this.entityMap != null) {
+                        this.entityMap.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing entityMap", e);
+                }
+                try {
+                    if (this.entityReferencingSemanticMap != null) {
+                        this.entityReferencingSemanticMap.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing entityReferencingSemanticMap", e);
+                }
+                try {
+                    if (this.uuidEntityKeyMap != null) {
+                        this.uuidEntityKeyMap.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing uuidEntityKeyNidMap", e);
+                }
+                try {
+                    if (this.sequenceMap != null) {
+                        this.sequenceMap.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing sequenceMap", e);
+                }
+
+                // Close DB after column family handles are closed
+                try {
+                    if (this.db != null) {
+                        this.db.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing RocksDB", e);
+                }
+
+                // Close ColumnFamilyOptions / Table configs to release native resources deterministically
+                try {
+                    safeCloseColumnFamilyDescriptors();
+                } catch (Exception e) {
+                    LOG.warn("Error closing ColumnFamilyOptions", e);
+                }
+
+                // Close cache
+                try {
+                    if (this.blockCache != null) {
+                        this.blockCache.close();
+                    }
+                } catch (Exception e) {
+                    LOG.warn("Error closing blockCache", e);
+                }
+
+                closed.set(true);
+                LOG.info("RocksProvider closed.");
             }
-        } catch (Exception e) {
-            LOG.warn("Error closing Indexer: {}", e.getMessage(), e);
+        }   finally {
+            startupShutdownSemaphore.release();
         }
-
-        if (!closing.compareAndSet(false, true)) {
-            return;
-        }
-
-        // Prevent new calls during shutdown
-        Get.singleton = null;
-        Put.singleton = null;
-
-        // TODO: Best effort: ensure no app tasks are still running on this provider before shutdown.
-        // TODO: If you have executors or scopes retained, join/cancel here.
-
-
-        // Close maps (they will flush and close column family handles they own)
-        try {
-            if (this.entityMap != null) {
-                this.entityMap.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing entityMap", e);
-        }
-        try {
-            if (this.entityReferencingSemanticMap != null) {
-                this.entityReferencingSemanticMap.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing entityReferencingSemanticMap", e);
-        }
-        try {
-            if (this.uuidEntityKeyMap != null) {
-                this.uuidEntityKeyMap.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing uuidEntityKeyNidMap", e);
-        }
-        try {
-            if (this.sequenceMap != null) {
-                this.sequenceMap.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing sequenceMap", e);
-        }
-
-        // Close DB after column family handles are closed
-        try {
-            if (this.db != null) {
-                this.db.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing RocksDB", e);
-        }
-
-        // Close ColumnFamilyOptions / Table configs to release native resources deterministically
-        try {
-            safeCloseColumnFamilyDescriptors();
-        } catch (Exception e) {
-            LOG.warn("Error closing ColumnFamilyOptions", e);
-        }
-
-        // Close cache
-        try {
-            if (this.blockCache != null) {
-                this.blockCache.close();
-            }
-        } catch (Exception e) {
-            LOG.warn("Error closing blockCache", e);
-        }
-
-        closed.set(true);
-        LOG.info("RocksProvider closed.");
     }
 
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
@@ -383,7 +394,6 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     public int newNid() {
         throw new UnsupportedOperationException();
     }
-
 
     @Override
     public long writeSequence() {

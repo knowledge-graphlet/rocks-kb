@@ -10,18 +10,17 @@ import org.eclipse.collections.api.list.ImmutableList;
 import java.util.UUID;
 
 public class Get {
-    public static RocksProvider singleton;
 
     public static ConceptEntity concept(int nid) {
-        return EntityRecordFactory.make(singleton.getBytes(nid));
+        return EntityRecordFactory.make(RocksProvider.get().getBytes(nid));
     }
 
     public static StampEntity stamp(int nid) {
-        return EntityRecordFactory.make(singleton.getBytes(nid));
+        return EntityRecordFactory.make(RocksProvider.get().getBytes(nid));
     }
 
     public static int nidForUuids(ImmutableList<UUID> uuidList) {
-        return singleton.nidForUuids(uuidList);
+        return RocksProvider.get().nidForUuids(uuidList);
     }
 
     public static int stampNid(Stamp stamp) {
@@ -29,9 +28,9 @@ public class Get {
     }
 
     public static long sequenceForNid(int nid) {
-        return singleton.elementSequenceForNid(nid);
+        return RocksProvider.get().elementSequenceForNid(nid);
     }
     public static int stampSequenceForStampNid(int stampNid) {
-        return singleton.stampSequenceForStampNid(stampNid);
+        return RocksProvider.get().stampSequenceForStampNid(stampNid);
     }
 }

@@ -54,7 +54,7 @@ public class RocksExportZipTest {
     void exportKnowledgeBaseToZip() throws Exception {
         // 1) Build the RocksKB by running the import task
         HashSet<UUID> watchList = new HashSet<>();
-        ImportProtobufTask importTask = new ImportProtobufTask(importFile, RocksProvider.singleton, watchList);
+        ImportProtobufTask importTask = new ImportProtobufTask(importFile, RocksProvider.get(), watchList);
         importTask.compute();
 
         // 2) Compute expectations from the SequenceMap (DEFAULT CF)
@@ -87,8 +87,8 @@ public class RocksExportZipTest {
     // --- Validation helpers ---
 
     private TreeMap<Integer, Long> loadSequenceExpectations() {
-        RocksDB db = RocksProvider.singleton.getDb();
-        var cf = RocksProvider.singleton.getHandle(RocksProvider.ColumnFamily.DEFAULT);
+        RocksDB db = RocksProvider.get().getDb();
+        var cf = RocksProvider.get().getHandle(RocksProvider.ColumnFamily.DEFAULT);
         TreeMap<Integer, Long> result = new TreeMap<>();
 
         try (RocksIterator it = db.newIterator(cf)) {
@@ -126,8 +126,8 @@ public class RocksExportZipTest {
      * - Then iteration advances to the next expected longKey group.
      */
     private long validateEntityMapOrderAndCounts(SortedMap<Integer, Long> patternToLastExclusive) throws Exception {
-        RocksDB db = RocksProvider.singleton.getDb();
-        var cf = RocksProvider.singleton.getHandle(RocksProvider.ColumnFamily.ENTITY_MAP);
+        RocksDB db = RocksProvider.get().getDb();
+        var cf = RocksProvider.get().getHandle(RocksProvider.ColumnFamily.ENTITY_MAP);
 
         long validated = 0;
         try (RocksIterator it = db.newIterator(cf)) {
@@ -204,8 +204,8 @@ public class RocksExportZipTest {
     // --- Export writers ---
 
     private long writeSequenceMapEntry(ZipOutputStream zos) throws Exception {
-        RocksDB db = RocksProvider.singleton.getDb();
-        var cf = RocksProvider.singleton.getHandle(RocksProvider.ColumnFamily.DEFAULT);
+        RocksDB db = RocksProvider.get().getDb();
+        var cf = RocksProvider.get().getHandle(RocksProvider.ColumnFamily.DEFAULT);
 
         ZipEntry entry = new ZipEntry("sequence-map.dat");
         zos.putNextEntry(entry);
@@ -227,8 +227,8 @@ public class RocksExportZipTest {
     }
 
     private long writeEntityMapEntry(ZipOutputStream zos) throws Exception {
-        RocksDB db = RocksProvider.singleton.getDb();
-        var cf = RocksProvider.singleton.getHandle(RocksProvider.ColumnFamily.ENTITY_MAP);
+        RocksDB db = RocksProvider.get().getDb();
+        var cf = RocksProvider.get().getHandle(RocksProvider.ColumnFamily.ENTITY_MAP);
 
         ZipEntry entry = new ZipEntry("entity-map.dat");
         zos.putNextEntry(entry);
@@ -263,7 +263,7 @@ public class RocksExportZipTest {
         main.put(Attributes.Name.MANIFEST_VERSION, "1.0");
         main.put(new Attributes.Name("Created-By"), "RocksExportZipTest");
         main.put(new Attributes.Name("Created-At"), Instant.now().toString());
-        main.put(new Attributes.Name("KB-Name"), RocksProvider.singleton.name());
+        main.put(new Attributes.Name("KB-Name"), RocksProvider.get().name());
 
         // Export counts
         main.put(new Attributes.Name("SequenceMap-Entry-Count"), Long.toString(seqEntries));

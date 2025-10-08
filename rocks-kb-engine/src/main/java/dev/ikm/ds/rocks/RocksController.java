@@ -15,31 +15,22 @@ public abstract class RocksController implements DataServiceController<Primitive
 
     @Override
     public boolean running() {
-        return RocksProvider.singleton != null;
+        return RocksProvider.get().running();
     }
 
     @Override
     public void start() {
-        try {
-            new RocksProvider();
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
+        RocksProvider.get();
     }
 
     @Override
     public void stop() {
-        if (RocksProvider.singleton != null) {
-            RocksProvider.singleton.close();
-            RocksProvider.singleton = null;
-        }
+        RocksProvider.get().close();
     }
 
     @Override
     public void save() {
-        if (RocksProvider.singleton != null) {
-            RocksProvider.singleton.save();
-        }
+        RocksProvider.get().save();
     }
 
     @Override
@@ -49,10 +40,7 @@ public abstract class RocksController implements DataServiceController<Primitive
 
     @Override
     public PrimitiveDataService provider() {
-        if (RocksProvider.singleton == null) {
-            start();
-        }
-        return RocksProvider.singleton;
+        return RocksProvider.get();
     }
 
     @Override
