@@ -13,6 +13,13 @@
     <name>rocks-kb-engine</name>
     <description>Rocks KB engine</description>
 
+    <properties>
+        <compiler.args>--enable-preview</compiler.args>
+        <surefire.args>--enable-preview</surefire.args>
+        <failsafe.args>--enable-preview</failsafe.args>
+        <javadoc.args>--enable-preview</javadoc.args>
+    </properties>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
@@ -25,10 +32,6 @@
         </dependencies>
     </dependencyManagement>
     <dependencies>
-        <dependency>
-            <groupId>org.eclipse.collections</groupId>
-            <artifactId>eclipse-collections</artifactId>
-        </dependency>
         <!-- Platform-specific natives JAR -->
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
@@ -59,16 +62,6 @@
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>entity</artifactId>
-            <exclusions>
-                <exclusion>
-                    <groupId>eclipse-collections</groupId>
-                    <artifactId>dev.ikm.jpms</artifactId>
-                </exclusion>
-                <exclusion>
-                    <artifactId>dev.ikm.jpms</artifactId>
-                    <groupId>eclipse-collections-api</groupId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
@@ -114,16 +107,4 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
-
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <argLine>-XX:+UseCompactObjectHeaders --enable-preview -Xms32g -Xmx32g </argLine>
-                </configuration>
-            </plugin>
-        </plugins>
-    </build>
 </project>
