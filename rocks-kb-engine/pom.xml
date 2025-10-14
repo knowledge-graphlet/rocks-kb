@@ -33,11 +33,47 @@
     </dependencyManagement>
     <dependencies>
         <!-- Platform-specific natives JAR -->
+        <!-- Declare all platform variants as optional -->
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>rocksdbjni-jpms</artifactId>
             <version>10.4.2.r1-SNAPSHOT</version>
-            <classifier>${platform.classifier}</classifier>
+            <classifier>osx</classifier>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>rocksdbjni-jpms</artifactId>
+            <version>10.4.2.r1-SNAPSHOT</version>
+            <classifier>linux64</classifier>
+            <optional>true</optional>
+            <exclusions>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>net.java.dev.jna</groupId>
+                    <artifactId>jna-platform</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.jpms</groupId>
+            <artifactId>rocksdbjni-jpms</artifactId>
+            <version>10.4.2.r1-SNAPSHOT</version>
+            <classifier>win64</classifier>
+            <optional>true</optional>
             <exclusions>
                 <exclusion>
                     <groupId>net.java.dev.jna</groupId>
