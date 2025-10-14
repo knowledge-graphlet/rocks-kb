@@ -28,7 +28,7 @@ public class RocksNewController extends RocksController {
     private static final Logger LOG = LoggerFactory.getLogger(RocksNewController.class);
     private static final AtomicBoolean started = new AtomicBoolean(false);
     public static boolean loading = false;
-    public static String CONTROLLER_NAME = "New Spined Array Store";
+    public static String CONTROLLER_NAME = "New Rocks KB";
     public static final DataServiceProperty NEW_FOLDER_PROPERTY = new DataServiceProperty("New folder name", false, true);
     String importDataFileString;
     MutableMap<DataServiceProperty, String> providerProperties = Maps.mutable.empty();
@@ -122,7 +122,7 @@ public class RocksNewController extends RocksController {
                 RocksNewController.loading = false;
             }
         } else {
-            LOG.info("Attempt to start RokcsKb, but RocksKB is already started");
+            LOG.info("Attempt to start Rocks KB, but Rocks KB is already started");
         }
     }
 
