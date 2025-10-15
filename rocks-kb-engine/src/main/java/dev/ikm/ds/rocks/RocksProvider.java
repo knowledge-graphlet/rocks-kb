@@ -126,6 +126,11 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     private final Cache blockCache;
     private final AtomicBoolean closing = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
+    
+    // Add these fields to track native resources that need cleanup
+    private DBOptions dbOptions;
+    private final List<Filter> bloomFilters = new ArrayList<>();
+    private final List<BlockBasedTableConfig> tableConfigs = new ArrayList<>();
 
     private RocksProvider() {
         startupShutdownSemaphore.acquireUninterruptibly();
@@ -148,9 +153,12 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             this.columnDescriptors = Arrays.stream(ColumnFamily.values())
                     .map(cf -> {
 
+                        BloomFilter bloomFilter = new BloomFilter(cf.bloomFilterBitsPerKey, /*useBlockBasedBuilder*/ false);
+                        bloomFilters.add(bloomFilter); // Track for cleanup
+                        
                         BlockBasedTableConfig tableCfg = new BlockBasedTableConfig()
                                 .setBlockCache(this.blockCache)
-                                .setFilterPolicy(new BloomFilter(cf.bloomFilterBitsPerKey, /*useBlockBasedBuilder*/ false))
+                                .setFilterPolicy(bloomFilter)
                                 .setWholeKeyFiltering(false)                    // favor prefix Bloom (when prefix extractor is configured)
                                 .setCacheIndexAndFilterBlocks(true)            // keep index/filter hot
                                 .setPinL0FilterAndIndexBlocksInCache(true)     // optional
@@ -158,6 +166,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                                 .setChecksumType(ChecksumType.kXXH3)           // modern checksum
                                 .setFormatVersion(5)                           // stable table format
                                 .setPartitionFilters(true);                    // scalable filters for large data
+                        
+                        tableConfigs.add(tableCfg); // Track for cleanup
 
                         ColumnFamilyOptions cfo = new ColumnFamilyOptions();
                         cfo.setCompressionType(CompressionType.NO_COMPRESSION);
@@ -170,7 +180,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                         return new ColumnFamilyDescriptor(cf.getValue(), cfo);
                     }).toList();
 
-            try (DBOptions options = new DBOptions()
+            // Don't use try-with-resources - we need to keep DBOptions alive
+            this.dbOptions = new DBOptions()
                     .setCreateIfMissing(true)
                     .setCreateMissingColumnFamilies(true)
                     .setIncreaseParallelism(Runtime.getRuntime().availableProcessors())
@@ -182,9 +193,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     // Configure RocksDB log directory (creates LOG, LOG.old.* here)
                     .setDbLogDir(Path.of(configuredRoot.getPath(), "rocks-logs").toString())
                     // Optional: adjust verbosity of RocksDB's internal logging
-                    .setInfoLogLevel(InfoLogLevel.INFO_LEVEL)
-            ) {
-                db = RocksDB.open(options, rockFiles.getAbsolutePath(), columnDescriptors, columnHandles);
+                    .setInfoLogLevel(InfoLogLevel.INFO_LEVEL);
+                    
+            try {
+                db = RocksDB.open(dbOptions, rockFiles.getAbsolutePath(), columnDescriptors, columnHandles);
                 entityReferencingSemanticMap = new EntityReferencingSemanticMap(db, getHandle(ColumnFamily.ENTITY_REFERENCING_SEMANTIC_MAP));
                 sequenceMap = new SequenceMap(db, getHandle(ColumnFamily.DEFAULT));
                 uuidEntityKeyMap = new UuidEntityKeyMap(db, getHandle(ColumnFamily.UUID_ENTITY_KEY_MAP), sequenceMap);
@@ -192,6 +204,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             } catch (RocksDBException e) {
                 // Close ColumnFamilyOptions/Table configs if open failed
                 safeCloseColumnFamilyDescriptors();
+                safeCloseNativeResources();
                 throw new RuntimeException(e);
             }
 
@@ -234,16 +247,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                 try {
                     ColumnFamilyOptions opts = d.getOptions();
                     if (opts != null) {
-                        // Close nested table config first
-                        try {
-                            TableFormatConfig tfc = opts.tableFormatConfig();
-                            if (tfc instanceof BlockBasedTableConfig bbtc) {
-                                try {
-                                    Filter f = bbtc.filterPolicy();
-                                    if (f != null) f.close();
-                                } catch (Throwable ignore) {}
-                            }
-                        } catch (Throwable ignore) {}
+                        // Don't close filters here - we'll close them separately in safeCloseNativeResources
+                        // to avoid double-close
                         opts.close();
                     }
                 } catch (Throwable t) {
@@ -289,20 +294,30 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         return !closed.get() && !closing.get();
     }
 
-    @Override
-    public void close() {
-        startupShutdownSemaphore.acquireUninterruptibly();
-        try {
-            if (closed.get()) {
-                LOG.info("Called close() but RocksProvider already closed.");
-            } else {
-                // Flush and sync DB and index first
+        @Override
+        public void close() {
+            startupShutdownSemaphore.acquireUninterruptibly();
+            try {
+                if (closed.get()) {
+                    LOG.info("Called close() but RocksProvider already closed.");
+                    return;
+                }
+                
+                if (!closing.compareAndSet(false, true)) {
+                    LOG.info("Close already in progress");
+                    return;
+                }
+                
+                LOG.info("Closing RocksProvider...");
+                
+                // 1. Flush and sync DB and index first
                 try {
                     save();
                 } catch (Exception e) {
                     LOG.warn("Error while saving during close", e);
                 }
-                LOG.info("Closing RocksProvider...");
+                
+                // 2. Close Lucene indexer
                 try {
                     if (this.indexer != null) {
                         this.indexer.close();
@@ -311,11 +326,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.warn("Error closing Indexer: {}", e.getMessage(), e);
                 }
 
-                if (!closing.compareAndSet(false, true)) {
-                    return;
-                }
-
-                // Close maps (they will flush and close column family handles they own)
+                // 3. Close maps (they will close their column family handles)
                 try {
                     if (this.entityMap != null) {
                         this.entityMap.close();
@@ -345,7 +356,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.warn("Error closing sequenceMap", e);
                 }
 
-                // Close DB after column family handles are closed
+                // 4. Clear the column handles list (already closed by maps above)
+                columnHandles.clear();
+
+                // 5. Close DB after all column family handles are closed
                 try {
                     if (this.db != null) {
                         this.db.close();
@@ -354,14 +368,14 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.warn("Error closing RocksDB", e);
                 }
 
-                // Close ColumnFamilyOptions / Table configs to release native resources deterministically
+                // 6. Close ColumnFamilyOptions (without closing filters inside them)
                 try {
                     safeCloseColumnFamilyDescriptors();
                 } catch (Exception e) {
                     LOG.warn("Error closing ColumnFamilyOptions", e);
                 }
 
-                // Close cache
+                // 7. Close cache
                 try {
                     if (this.blockCache != null) {
                         this.blockCache.close();
@@ -369,15 +383,49 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                 } catch (Exception e) {
                     LOG.warn("Error closing blockCache", e);
                 }
+                
+                // 8. Close native resources (BloomFilters, DBOptions) LAST
+                try {
+                    safeCloseNativeResources();
+                } catch (Exception e) {
+                    LOG.warn("Error closing native resources", e);
+                }
 
                 closed.set(true);
                 LOG.info("RocksProvider closed.");
+            } finally {
+                startupShutdownSemaphore.release();
             }
-        }   finally {
-            startupShutdownSemaphore.release();
+        }
+
+    private void safeCloseNativeResources() {
+        // Close bloom filters - these DO have native resources
+        for (Filter f : this.bloomFilters) {
+            try {
+                if (f != null) {
+                    f.close();
+                }
+            } catch (Throwable t) {
+                LOG.debug("Error closing BloomFilter", t);
+            }
+        }
+        this.bloomFilters.clear();
+
+        // BlockBasedTableConfig doesn't need explicit closing - it's just a config holder
+        // The native resources it represents are owned by ColumnFamilyOptions
+        this.tableConfigs.clear();
+
+        // Close DB options
+        if (this.dbOptions != null) {
+            try {
+                this.dbOptions.close();
+            } catch (Throwable t) {
+                LOG.debug("Error closing DBOptions", t);
+            }
+            this.dbOptions = null;
         }
     }
-
+    
     public EntityKey getEntityKey(PublicId patternId, PublicId entityId) {
         return uuidEntityKeyMap.getEntityKey(patternId, entityId);
     }
