@@ -399,15 +399,24 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
 
     private void safeCloseNativeResources() {
         // Close bloom filters - these DO have native resources
-        for (Filter f : this.bloomFilters) {
-            try {
-                if (f != null) {
-                    f.close();
-                }
-            } catch (Throwable t) {
-                LOG.debug("Error closing BloomFilter", t);
-            }
-        }
+        /*
+Claude: The crash is almost certainly in the native RocksDB layer during shutdown,
+specifically around BloomFilter or cache cleanup. The NULL pointer dereference
+suggests RocksDB's C++ code tried to access a freed resource.
+
+Fix: Do NOT manually close BloomFilters that are owned by ColumnFamilyOptions.
+Remove the explicit BloomFilter closing from safeCloseNativeResources() or
+ensure they're not already freed when ColumnFamilyOptions closes.
+         */
+//        for (Filter f : this.bloomFilters) {
+//            try {
+//                if (f != null) {
+//                    f.close();
+//                }
+//            } catch (Throwable t) {
+//                LOG.debug("Error closing BloomFilter", t);
+//            }
+//        }
         this.bloomFilters.clear();
 
         // BlockBasedTableConfig doesn't need explicit closing - it's just a config holder
