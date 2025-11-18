@@ -658,12 +658,12 @@ ensure they're not already freed when ColumnFamilyOptions closes.
     @Override
     public void forEachConceptNid(IntProcedure procedure) {
         forEachSemanticNidOfPattern(
-                NidCodec6.decodePatternSequence(EntityBinding.Concept.pattern().nid()), procedure);
+                (int) NidCodec6.decodeElementSequence(EntityBinding.Concept.pattern().nid()), procedure);
     }
 
     @Override
     public void forEachStampNid(IntProcedure procedure) {
-        forEachSemanticNidOfPattern(NidCodec6.decodePatternSequence(EntityBinding.Stamp.pattern().nid()), procedure);
+        forEachSemanticNidOfPattern((int) NidCodec6.decodeElementSequence(EntityBinding.Stamp.pattern().nid()), procedure);
     }
 
     @Override
