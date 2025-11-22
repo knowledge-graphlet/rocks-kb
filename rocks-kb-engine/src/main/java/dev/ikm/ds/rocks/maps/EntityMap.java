@@ -53,6 +53,22 @@ public class EntityMap
     private final Thread writeThread = new Thread(() -> {
         // Drain remaining writes even after running=false
         while (running.get() || !pendingWritesMap.isEmpty()) {
+            if (pendingWrites.isEmpty()) {
+                try {
+                    // Wait for work to arrive before allocating native resources.
+                    // Using poll with timeout allows checking the 'running' flag periodically.
+                    WriteRecord record = pendingWrites.poll(100, TimeUnit.MILLISECONDS);
+                    if (record == null) {
+                        continue;
+                    }
+                    // Put it back so the batch logic below can process it normally
+                    pendingWrites.addFirst(record);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    continue;
+                }
+            }
+
             try (WriteBatch batch = new WriteBatch();
                  WriteOptions writeOptions = new WriteOptions()
                          .setDisableWAL(true)  // bulk-ingest, WAL off for speed (acceptable during import)
