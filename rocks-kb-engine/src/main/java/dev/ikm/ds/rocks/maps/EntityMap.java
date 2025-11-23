@@ -53,83 +53,79 @@ public class EntityMap
     private final Thread writeThread = new Thread(() -> {
         // Drain remaining writes even after running=false
         while (running.get() || !pendingWritesMap.isEmpty()) {
-            if (pendingWrites.isEmpty()) {
-                try {
-                    // Wait for work to arrive before allocating native resources.
-                    // Using poll with timeout allows checking the 'running' flag periodically.
-                    WriteRecord record = pendingWrites.poll(100, TimeUnit.MILLISECONDS);
-                    if (record == null) {
-                        continue;
-                    }
-                    // Put it back so the batch logic below can process it normally
-                    pendingWrites.addFirst(record);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    continue;
-                }
+            WriteRecord firstRecord = null;
+            try {
+                // BLOCKING WAIT: Wait for work to arrive.
+                // Using poll with timeout allows checking the 'running' flag periodically.
+                firstRecord = pendingWrites.poll(100, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
+            if (firstRecord == null) {
+                continue;
             }
 
             try (WriteBatch batch = new WriteBatch();
                  WriteOptions writeOptions = new WriteOptions()
-                         .setDisableWAL(true)  // bulk-ingest, WAL off for speed (acceptable during import)
+                         .setDisableWAL(true)
                          .setSync(false)
                          .setNoSlowdown(true)) {
-                MutableList<WriteRecord> writeRecords = Lists.mutable.empty();
-                int batchCount = 0;
+
+                // Initialize list with the item we already retrieved
+                MutableList<WriteRecord> writeRecords = Lists.mutable.with(firstRecord);
+                long maxSeqInThisBatch = firstRecord.writeSequence;
+
+                // Add the first record immediately
+                addToBatch(batch, firstRecord);
+
+                int batchCount = 1;
                 boolean interrupted = false;
-                long maxSeqInThisBatch = 0;
-                // Increase throughput: write more per batch
-                while (batchCount++ < 16384 && !pendingWritesMap.isEmpty() && !interrupted) {
+
+                // Batch up additional records if immediately available
+                // We don't need to wait (poll with timeout) here; we want to batch what's ready
+                while (batchCount++ < 16384 && !interrupted) {
                     try {
-                        WriteRecord writeRecord = pendingWrites.poll();
+                        WriteRecord writeRecord = pendingWrites.poll(); // Non-blocking poll for subsequent items
                         if (writeRecord == null) {
-                            // No item immediately available; if not running, we may be draining the tail.
-                            if (!running.get()) {
-                                break;
-                            }
-                            // brief park instead of 2s delay to keep shutdown responsive
-                            Thread.sleep(1);
-                            continue;
+                            break;
                         }
                         maxSeqInThisBatch = Math.max(maxSeqInThisBatch, writeRecord.writeSequence);
-                        boolean isStamp = isStamp(writeRecord.entityParts.get(0));
-                        for (int i = 0; i < writeRecord.entityParts.size(); i++) {
-                            byte[] key = makeKey(writeRecord.key, isStamp, i, writeRecord.entityParts);
-                            byte[] partBytes = writeRecord.entityParts.get(i).toArray();
-                            if (partBytes == null || partBytes.length == 0) {
-                                throw new IllegalStateException("writeThread: entityParts is empty");
-                            }
-                            batch.put(mapHandle, key, partBytes);
-                        }
+                        addToBatch(batch, writeRecord);
                         writeRecords.add(writeRecord);
-                    } catch (InterruptedException e) {
-                        interrupted = true;
-                        Thread.currentThread().interrupt();
+                    } catch (RocksDBException e) {
+                        throw new RuntimeException(e);
                     }
                 }
+
                 if (!writeRecords.isEmpty()) {
-                    // Retry with exponential backoff on backpressure
-                    int attempts = 0;
                     long backoffMillis = 1;
-                    while (true) {
+                    final int maxAttempts = 8;
+                    
+                    // Refactored: Explicit loop instead of while(true)
+                    for (int attempt = 0; attempt <= maxAttempts; attempt++) {
                         try {
                             db.write(writeOptions, batch);
-                            break;
+                            break; // Success, exit loop
                         } catch (RocksDBException e) {
                             org.rocksdb.Status st = e.getStatus();
                             boolean retryable = st != null &&
                                     (st.getCode() == org.rocksdb.Status.Code.Busy ||
                                      st.getCode() == org.rocksdb.Status.Code.Incomplete);
-                            if (retryable && attempts++ < 8) {
-                                try {
-                                    Thread.sleep(backoffMillis);
-                                } catch (InterruptedException ie) {
-                                    Thread.currentThread().interrupt();
-                                }
-                                backoffMillis = Math.min(200, backoffMillis * 2);
-                                continue;
+
+                            // If this was the last attempt, or error is not retryable, fail hard
+                            if (!retryable || attempt == maxAttempts) {
+                                throw e;
                             }
-                            throw e;
+
+                            try {
+                                Thread.sleep(backoffMillis);
+                            } catch (InterruptedException ie) {
+                                Thread.currentThread().interrupt();
+                                // If interrupted during backoff, abort operations
+                                throw new RuntimeException("Write thread interrupted during retry", ie);
+                            }
+                            backoffMillis = Math.min(200, backoffMillis * 2);
                         }
                     }
 
@@ -144,15 +140,26 @@ public class EntityMap
                     for (WriteRecord writeRecord : writeRecords) {
                         pendingWritesMap.remove(writeRecord.key, writeRecord);
                     }
-                } else {
-                    Thread.onSpinWait();
                 }
             } catch (RocksDBException e) {
                 LOG.error("Failed to write batch to RocksDB", e);
                 throw new RuntimeException(e);
             }
         }
-    });
+    }, "EntityMap-Writer");
+
+    // Helper method to reduce code duplication
+    private void addToBatch(WriteBatch batch, WriteRecord writeRecord) throws RocksDBException {
+        boolean isStamp = isStamp(writeRecord.entityParts.get(0));
+        for (int i = 0; i < writeRecord.entityParts.size(); i++) {
+            byte[] key = makeKey(writeRecord.key, isStamp, i, writeRecord.entityParts);
+            byte[] partBytes = writeRecord.entityParts.get(i).toArray();
+            if (partBytes == null || partBytes.length == 0) {
+                throw new IllegalStateException("writeThread: entityParts is empty");
+            }
+            batch.put(mapHandle, key, partBytes);
+        }
+    }
 
     public EntityMap(RocksDB db, ColumnFamilyHandle mapHandle, UuidEntityKeyMap uuidEntityKeyMap) {
         super(db, mapHandle);

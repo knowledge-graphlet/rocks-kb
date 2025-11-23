@@ -231,8 +231,6 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.error(e.getLocalizedMessage(), e);
                 }
             }
-            // Prime TypeAheadSearch
-            //TypeAheadSearch.get();
             stopwatch.stop();
             LOG.info("Opened RocksProvider in: " + stopwatch.durationString());
         } finally {
@@ -580,9 +578,52 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         longCollection = longCollection.toSortedList();
         long[] keys = longCollection.toArray();
         ImmutableList<LongSpliteratorOfPattern> parts = SortedLongArraySpliteratorOfPattern.of(keys);
+
+        MutableList<LongSpliteratorOfPattern> subSpliterators = Lists.mutable.empty();
+        int targetChunkSize = PrimitiveData.calculateOptimalChunkSize(nids.size());;
+
         for (LongSpliteratorOfPattern part : parts) {
-            this.entityMap.scanEntitiesInRange(part, action);
+            ArrayDeque<LongSpliteratorOfPattern> queue = new ArrayDeque<>();
+            queue.add(part);
+
+            while (!queue.isEmpty()) {
+                LongSpliteratorOfPattern current = queue.poll();
+                if (current.estimateSize() > targetChunkSize) {
+                    LongSpliteratorOfPattern split = (LongSpliteratorOfPattern) current.trySplit();
+                    if (split != null) {
+                        queue.add(split);
+                        queue.add(current);
+                        continue;
+                    }
+                }
+                subSpliterators.add(current);
+            }
         }
+
+        try (StructuredTaskScope<Object, Void> scope = StructuredTaskScope.open()) {
+            for (LongSpliteratorOfPattern part : subSpliterators) {
+                scope.fork(() -> {
+                    this.entityMap.scanEntitiesInRange(part, action);
+                    return null;
+                });
+            }
+            scope.join();
+        } catch (RuntimeException | Error e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public void forEach(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
+        MutableLongCollection longCollection = LongLists.mutable.withInitialCapacity(nids.size());
+        nids.collectLong(nid -> NidCodec6.longKeyForNid(nid), longCollection);
+        longCollection = longCollection.toSortedList();
+        long[] keys = longCollection.toArray();
+        // Pass false to disable parallel execution (splitting)
+        ImmutableList<LongSpliteratorOfPattern> parts = SortedLongArraySpliteratorOfPattern.of(keys, false);
+        this.entityMap.scanEntitiesInRange(parts.getOnly(), action);
     }
 
     @Override

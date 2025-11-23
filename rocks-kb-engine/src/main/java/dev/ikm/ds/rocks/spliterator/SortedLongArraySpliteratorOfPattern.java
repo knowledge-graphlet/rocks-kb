@@ -49,8 +49,13 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
     private final long[] a;
     private int index;        // inclusive
     private final int fence;  // exclusive
+    private final boolean parallel;
 
     public static ImmutableList<LongSpliteratorOfPattern> of(long[] provided) {
+        return of(provided, true);
+    }
+
+    public static ImmutableList<LongSpliteratorOfPattern> of(long[] provided, boolean parallel) {
         long[] copy = Arrays.copyOf(provided, provided.length);
         Arrays.parallelSort(copy);
         // Partition the sorted array into runs having the same upper 16-bit pattern
@@ -66,7 +71,7 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
                 end++;
             }
             // create independent spliterator for [start, end)
-            parts.add(new SortedLongArraySpliteratorOfPattern(copy, start, end, startPattern));
+            parts.add(new SortedLongArraySpliteratorOfPattern(copy, start, end, startPattern, parallel));
             start = end;
         }
         return parts.toImmutable();
@@ -81,14 +86,15 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
     private final int pattern;
 
     private SortedLongArraySpliteratorOfPattern(long[] a, int origin, int fence) {
-        this(a, origin, fence, computePattern(a, origin, fence));
+        this(a, origin, fence, computePattern(a, origin, fence), true);
     }
 
-    private SortedLongArraySpliteratorOfPattern(long[] a, int origin, int fence, int pattern) {
+    private SortedLongArraySpliteratorOfPattern(long[] a, int origin, int fence, int pattern, boolean parallel) {
         this.a = a;
         this.index = origin;
         this.fence = fence;
         this.pattern = pattern;
+        this.parallel = parallel;
     }
 
     private static int computePattern(long[] a, int origin, int fence) {
@@ -110,11 +116,12 @@ public final class SortedLongArraySpliteratorOfPattern implements LongSpliterato
      */
     @Override
     public OfLong trySplit() {
+        if (!parallel) return null;
         int lo = index, hi = fence;
         int mid = (lo + hi) >>> 1;
         if (lo >= mid) return null;
         index = mid; // this keeps [mid, hi)
-        return new SortedLongArraySpliteratorOfPattern(a, lo, mid); // split gets [lo, mid)
+        return new SortedLongArraySpliteratorOfPattern(a, lo, mid, pattern, parallel); // split gets [lo, mid)
     }
 
     /**
