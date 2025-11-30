@@ -302,8 +302,8 @@ public class RocksExportZipTest {
         String txt = """
                 Validation Summary
                 ==================
-                Expected entity count : %d
-                Validated entity count: %d
+                Expected entity count : %,d
+                Validated entity count: %,d
 
                 Status: %s
                 """.formatted(

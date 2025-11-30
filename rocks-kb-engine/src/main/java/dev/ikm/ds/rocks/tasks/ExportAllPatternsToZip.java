@@ -108,13 +108,13 @@ public final class ExportAllPatternsToZip extends TrackingCallable<Path> {
         try (Formatter f = new Formatter(sb, Locale.ROOT)) {
             long totalEntities = results.stream().mapToLong(ExportPatternToZip.Result::entityCount).sum();
             long totalSize = results.stream().mapToLong(ExportPatternToZip.Result::size).sum();
-            f.format("Pattern-Count: %d%n", results.size());
-            f.format("Total-Entity-Count: %d%n", totalEntities);
-            f.format("Total-Bytes: %d%n", totalSize);
+            f.format("Pattern-Count: %,d%n", results.size());
+            f.format("Total-Entity-Count: %,d%n", totalEntities);
+            f.format("Total-Bytes: %,d%n", totalSize);
             sb.append(System.lineSeparator());
             sb.append("Entries:").append(System.lineSeparator());
             for (var r : results) {
-                f.format("- %s | pattern=%d | entities=%d | size=%d | crc=%08x%n",
+                f.format("- %s | pattern=%,d | entities=%,d | size=%,d | crc=%08x%n",
                         r.entryName(), r.patternSequence(), r.entityCount(), r.size(), r.crc());
             }
         }

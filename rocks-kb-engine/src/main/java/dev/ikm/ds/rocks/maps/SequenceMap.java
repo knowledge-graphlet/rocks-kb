@@ -79,9 +79,9 @@ public class SequenceMap extends RocksDbMap<RocksDB> {
             EntityKey patternKey = EntityKey.of(PATTERN_PATTERN_SEQUENCE, entry.getKey());
             int patternNid = NidCodec6.encode(patternKey.patternSequence(), patternKey.elementSequence());
             String patternName = PrimitiveData.textWithNid(patternNid);
-            sequenceReport.append(String.format("%d=%d, ", entry.getKey(), entry.getValue().get()));
+            sequenceReport.append(String.format("%,d=%,d, ", entry.getKey(), entry.getValue().get()));
             sequenceReport.append(String.format(
-                    "%s | EntityKey: %d (0x%016X) | EntityNid: %d (0x%08X)%n\n",
+                    "%s | EntityKey: %,d (0x%016X) | EntityNid: %,d (0x%08X)%n\n",
                     patternName,
                     patternKey.longKey(),          // decimal
                     patternKey.longKey(),          // hex (zero-padded to 16 for a long)
