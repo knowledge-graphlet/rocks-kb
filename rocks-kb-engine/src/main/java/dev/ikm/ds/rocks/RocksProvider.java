@@ -573,10 +573,13 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
     @Override
     public void forEachParallel(ImmutableIntList nids, ObjIntConsumer<byte[]> action) {
-        MutableLongCollection longCollection = LongLists.mutable.withInitialCapacity(nids.size());
-        nids.collectLong(nid -> NidCodec6.longKeyForNid(nid), longCollection);
-        longCollection = longCollection.toSortedList();
-        long[] keys = longCollection.toArray();
+        // Collect directly to array
+        long[] keys = new long[nids.size()];
+        nids.forEachWithIndex((nid, index) -> keys[index] = NidCodec6.longKeyForNid(nid));
+
+        // Sort in place (no extra allocation)
+        Arrays.parallelSort(keys);
+
         ImmutableList<LongSpliteratorOfPattern> parts = SortedLongArraySpliteratorOfPattern.of(keys);
 
         MutableList<LongSpliteratorOfPattern> subSpliterators = Lists.mutable.empty();
