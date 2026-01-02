@@ -1,8 +1,8 @@
-import dev.ikm.ds.rocks.RocksNewController;
-import dev.ikm.ds.rocks.RocksOpenController;
+import dev.ikm.ds.rocks.RocksProvider;
 import dev.ikm.tinkar.common.service.DataServiceController;
 import dev.ikm.tinkar.common.service.ExecutorController;
 import dev.ikm.tinkar.common.service.LoadDataFromFileController;
+import dev.ikm.tinkar.common.service.ServiceLifecycle;
 import dev.ikm.tinkar.entity.ChangeSetWriterService;
 import dev.ikm.tinkar.entity.EntityService;
 
@@ -24,7 +24,9 @@ module dev.ikm.rocks.engine {
     requires org.eclipse.collections.impl;
 
     provides DataServiceController
-            with RocksOpenController, RocksNewController;
+            with RocksProvider.OpenController, RocksProvider.NewController;
+    provides ServiceLifecycle
+            with RocksProvider.OpenController, RocksProvider.NewController;
 
     uses LoadDataFromFileController;
     uses ChangeSetWriterService;

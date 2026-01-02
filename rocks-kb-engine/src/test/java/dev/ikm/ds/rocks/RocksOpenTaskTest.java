@@ -28,7 +28,7 @@ class RocksOpenTaskTest {
     void setUp() {
         File defaultDataDirectory = new File("target/RocksKb/");
         ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
-        RocksOpenController controller = new RocksOpenController();
+        RocksProvider.OpenController controller = new RocksProvider.OpenController();
         PrimitiveData.setController(controller);
         controller.start();
         controller.stop();

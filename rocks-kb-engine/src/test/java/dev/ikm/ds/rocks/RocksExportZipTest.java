@@ -38,8 +38,8 @@ public class RocksExportZipTest {
     void setUp() {
         File defaultDataDirectory = new File("target/rocksdb/");
         ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
-        RocksNewController controller = new RocksNewController();
-        controller.setDataServiceProperty(RocksNewController.NEW_FOLDER_PROPERTY, "RocksKb");
+        RocksProvider.NewController controller = new RocksProvider.NewController();
+        controller.setDataServiceProperty(RocksProvider.NewController.NEW_FOLDER_PROPERTY, "RocksKb");
         controller.setDataUriOption(new DataUriOption("kb-source", importFile.toURI()));
         PrimitiveData.setController(controller);
         controller.start();
