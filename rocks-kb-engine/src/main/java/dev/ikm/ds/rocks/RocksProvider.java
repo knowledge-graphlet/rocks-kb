@@ -14,9 +14,8 @@ import dev.ikm.tinkar.common.util.time.Stopwatch;
 import dev.ikm.tinkar.common.validation.ValidationRecord;
 import dev.ikm.tinkar.common.validation.ValidationSeverity;
 import dev.ikm.tinkar.entity.*;
-import dev.ikm.tinkar.provider.search.Indexer;
-import dev.ikm.tinkar.provider.search.RecreateIndex;
-import dev.ikm.tinkar.provider.search.Searcher;
+import dev.ikm.tinkar.provider.search.SearchProvider;
+import dev.ikm.tinkar.provider.search.SearchService;
 import dev.ikm.tinkar.terms.EntityBinding;
 import org.eclipse.collections.api.block.procedure.primitive.IntProcedure;
 import org.eclipse.collections.api.collection.primitive.MutableLongCollection;
@@ -57,11 +56,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     private LongAdder writeSequence = new LongAdder();
 
     final Semaphore startupShutdownSemaphore = new Semaphore(1);
-    final Indexer indexer;
-    final Searcher searcher;
     final String name;
 
     final StableValue<ImmutableList<ChangeSetWriterService>> changeSetWriterServices = StableValue.of();
+    final StableValue<SearchService> searchService = StableValue.of();
 
     private final RocksDB db;
     private final EntityMap entityMap;
@@ -127,7 +125,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             throw new RuntimeException(e);
         }
     }
-    private static StableValue<RocksProvider> stableProvider = StableValue.of();
+    private static final StableValue<RocksProvider> stableProvider = StableValue.of();
 
     private final Cache blockCache;
     private final AtomicBoolean closing = new AtomicBoolean(false);
@@ -144,6 +142,8 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             Stopwatch stopwatch = new Stopwatch();
             LOG.info("Opening " + this.getClass().getSimpleName());
             File configuredRoot = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT, defaultDataDirectory);
+            // Ensure DATA_STORE_ROOT is set in ServiceProperties for other services (like SearchProvider)
+            ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, configuredRoot);
             this.name = configuredRoot.getName();
             configuredRoot.mkdirs();
             LOG.info("Datastore root: " + configuredRoot.getAbsolutePath());
@@ -214,30 +214,6 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                 throw new RuntimeException(e);
             }
 
-            Path indexPath = Path.of(configuredRoot.getPath(), "lucene");
-            boolean indexExists = Files.exists(indexPath);
-            Indexer indexer;
-            try {
-                try {
-                    indexer = new Indexer(indexPath);
-                } catch (IllegalArgumentException ex) {
-                    // If Indexer Codec does not match, then delete and rebuild with new Codec
-                    FileUtil.recursiveDelete(indexPath.toFile());
-                    indexExists = Files.exists(indexPath);
-                    indexer = new Indexer(indexPath);
-                }
-                this.indexer = indexer;
-                this.searcher = new Searcher();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-            if (kbExists && !indexExists) {
-                try {
-                    this.recreateLuceneIndex().get();
-                } catch (Exception e) {
-                    LOG.error(e.getLocalizedMessage(), e);
-                }
-            }
             stopwatch.stop();
             LOG.info("Opened RocksProvider in: " + stopwatch.durationString());
         } finally {
@@ -263,7 +239,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     }
 
     private void checkOpen() {
-        if (closed.get() || closing.get()) {
+        if (closed.get()) {
             throw new IllegalStateException("RocksProvider is closed");
         }
     }
@@ -277,7 +253,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     }
 
     public void save() {
-        checkOpen();
+        if (closed.get() || closing.get()) {
+            LOG.debug("RocksProvider is closing/closed, skipping save");
+            return;
+        }
         entityMap.save();
         entityReferencingSemanticMap.save();
         sequenceMap.save();
@@ -285,11 +264,6 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
         try (FlushOptions flushOptions = new FlushOptions()) {
             db.flush(flushOptions);
         } catch (RocksDBException e) {
-            throw new RuntimeException(e);
-        }
-        try {
-            this.indexer.commit();
-        } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
@@ -313,24 +287,15 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                 }
                 
                 LOG.info("Closing RocksProvider...");
-                
-                // 1. Flush and sync DB and index first
+
+                // 1. Flush and sync DB first
                 try {
                     save();
                 } catch (Exception e) {
                     LOG.warn("Error while saving during close", e);
                 }
-                
-                // 2. Close Lucene indexer
-                try {
-                    if (this.indexer != null) {
-                        this.indexer.close();
-                    }
-                } catch (Exception e) {
-                    LOG.warn("Error closing Indexer: {}", e.getMessage(), e);
-                }
 
-                // 3. Close maps (they will close their column family handles)
+                // 2. Close maps (they will close their column family handles)
                 try {
                     if (this.entityMap != null) {
                         this.entityMap.close();
@@ -360,10 +325,10 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.warn("Error closing sequenceMap", e);
                 }
 
-                // 4. Clear the column handles list (already closed by maps above)
+                // 3. Clear the column handles list (already closed by maps above)
                 columnHandles.clear();
 
-                // 5. Close DB after all column family handles are closed
+                // 4. Close DB after all column family handles are closed
                 try {
                     if (this.db != null) {
                         this.db.close();
@@ -372,14 +337,14 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.warn("Error closing RocksDB", e);
                 }
 
-                // 6. Close ColumnFamilyOptions (without closing filters inside them)
+                // 5. Close ColumnFamilyOptions (without closing filters inside them)
                 try {
                     safeCloseColumnFamilyDescriptors();
                 } catch (Exception e) {
                     LOG.warn("Error closing ColumnFamilyOptions", e);
                 }
 
-                // 7. Close cache
+                // 6. Close cache
                 try {
                     if (this.blockCache != null) {
                         this.blockCache.close();
@@ -388,7 +353,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     LOG.warn("Error closing blockCache", e);
                 }
                 
-                // 8. Close native resources (BloomFilters, DBOptions) LAST
+                // 7. Close native resources (BloomFilters, DBOptions) LAST
                 try {
                     safeCloseNativeResources();
                 } catch (Exception e) {
@@ -672,26 +637,44 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         ImmutableList<ChangeSetWriterService> changeSetWriterServices = this.changeSetWriterServices.orElseSet(this::changeSetWriterServicesList);
         changeSetWriterServices.forEach(writerService -> writerService.writeToChangeSet((Entity) sourceObject, activity));
-        this.indexer.index(sourceObject);
+
+        // Delegate indexing to SearchProvider
+        try {
+            SearchService searchService = PluggableService.first(SearchService.class);
+            searchService.index(sourceObject);
+        } catch (Exception e) {
+            // Search service may not be available yet during startup
+            LOG.debug("SearchService not available for indexing", e);
+        }
+
         return mergedBytes;
+    }
+
+    private SearchService getSearchService() {
+        return searchService.orElseSet(() -> {
+            LOG.info("RocksProvider.getSearchService() - Looking up SearchService via ServiceLifecycleManager");
+            return ServiceLifecycleManager.get()
+                .getRunningService(SearchService.class)
+                .orElseThrow(() -> {
+                    LOG.error("RocksProvider.getSearchService() - SearchService not found");
+                    return new IllegalStateException("SearchService not available - ensure services are started");
+                });
+        });
     }
 
     @Override
     public PrimitiveDataSearchResult[] search(String query, int maxResultSize) throws Exception {
-        return this.searcher.search(query, maxResultSize);
+        LOG.debug("RocksProvider.search() called with query='{}', maxResultSize={}", query, maxResultSize);
+        SearchService service = getSearchService();
+        LOG.debug("RocksProvider.search() - Got SearchService, delegating search");
+        PrimitiveDataSearchResult[] results = service.search(query, maxResultSize);
+        LOG.debug("RocksProvider.search() - Search returned {} results", results != null ? results.length : 0);
+        return results;
     }
 
     @Override
     public CompletableFuture<Void> recreateLuceneIndex() {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return TinkExecutor.ioThreadPool().submit(new RecreateIndex(this.indexer)).get();
-            } catch (InterruptedException | ExecutionException ex) {
-                AlertStreams.dispatchToRoot(new CompletionException("Error encountered while creating Lucene indexes." +
-                        "Search and Type Ahead Suggestions may not function as expected.", ex));
-            }
-            return null;
-        }, TinkExecutor.ioThreadPool());
+        return getSearchService().recreateIndex();
     }
 
     @Override
@@ -817,7 +800,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
 
         @Override
         protected void cleanupProvider(RocksProvider provider) throws Exception {
-            provider.save();
+            // save() is already called in close(), no need to call it again
         }
 
         @Override
@@ -838,8 +821,10 @@ ensure they're not already freed when ColumnFamilyOptions closes.
         // ========== DataServiceController Implementation ==========
 
         @Override
-        public Class<? extends PrimitiveDataService> serviceClass() {
-            return PrimitiveDataService.class;
+        public ImmutableList<Class<?>> serviceClasses() {
+            // RocksProvider (the generic type parameter P) implements PrimitiveDataService
+            // This establishes the contract: ProviderController<RocksProvider> provides PrimitiveDataService
+            return Lists.immutable.of(PrimitiveDataService.class);
         }
 
         @Override
@@ -871,10 +856,7 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             throw new UnsupportedOperationException("Reload not yet supported");
         }
 
-        @Override
-        public PrimitiveDataService provider() {
-            return requireProvider();
-        }
+        // Note: provider() method is inherited from ProviderController base class
     }
 
     /**
