@@ -5,6 +5,7 @@
     <parent>
         <groupId>dev.ikm.ike</groupId>
         <artifactId>rocks-kb</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
     </parent>
 
     <artifactId>rocks-kb-engine</artifactId>
@@ -20,24 +21,12 @@
         <javadoc.args>--enable-preview</javadoc.args>
     </properties>
 
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>dev.ikm.ike</groupId>
-                <artifactId>ike-bom</artifactId>
-                <version>0.1.0-SNAPSHOT</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
     <dependencies>
         <!-- Platform-specific natives JAR -->
         <!-- Declare all platform variants as optional -->
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>rocksdbjni-jpms</artifactId>
-            <version>10.4.2-r1-SNAPSHOT</version>
             <classifier>osx</classifier>
             <optional>true</optional>
             <exclusions>
@@ -54,7 +43,6 @@
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>rocksdbjni-jpms</artifactId>
-            <version>10.4.2-r1-SNAPSHOT</version>
             <classifier>linux64</classifier>
             <optional>true</optional>
             <exclusions>
@@ -71,7 +59,6 @@
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>rocksdbjni-jpms</artifactId>
-            <version>10.4.2-r1-SNAPSHOT</version>
             <classifier>win64</classifier>
             <optional>true</optional>
             <exclusions>
@@ -88,12 +75,10 @@
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>jna-jpms</artifactId>
-            <version>5.18.1-r1-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>dev.ikm.jpms</groupId>
             <artifactId>jna-platform-jpms</artifactId>
-            <version>5.18.1-r1-SNAPSHOT</version>
         </dependency>
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
