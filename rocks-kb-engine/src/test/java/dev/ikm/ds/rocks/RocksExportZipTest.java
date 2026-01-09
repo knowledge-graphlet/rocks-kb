@@ -41,8 +41,8 @@ public class RocksExportZipTest {
         RocksProvider.NewController controller = new RocksProvider.NewController();
         controller.setDataServiceProperty(RocksProvider.NewController.NEW_FOLDER_PROPERTY, "RocksKb");
         controller.setDataUriOption(new DataUriOption("kb-source", importFile.toURI()));
-        PrimitiveData.setController(controller);
-        controller.start();
+        PrimitiveData.selectControllerByClass(RocksProvider.NewController.class);
+        PrimitiveData.start();
     }
 
     @AfterEach

@@ -36,8 +36,8 @@ class ImportProtobufTaskTest {
         RocksProvider.NewController controller = new RocksProvider.NewController();
         controller.setDataServiceProperty(RocksProvider.NewController.NEW_FOLDER_PROPERTY, "RocksKb");
         controller.setDataUriOption(new DataUriOption("snomedct-international", importFile.toURI()));
-        PrimitiveData.setController(controller);
-        controller.start();
+        PrimitiveData.selectControllerByClass(RocksProvider.NewController.class);
+        PrimitiveData.start();
         EntityKey key1 = RocksProvider.get().getEntityKey(EntityBinding.Stamp.pattern(), PublicIds.of(PrimitiveData.NONEXISTENT_STAMP_UUID));
         EntityKey key2 = RocksProvider.get().getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.AUTHOR_FOR_VERSION);
         EntityKey key3 = RocksProvider.get().getEntityKey(EntityBinding.Concept.pattern(), TinkarTerm.UNINITIALIZED_COMPONENT);
