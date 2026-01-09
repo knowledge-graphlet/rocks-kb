@@ -16,6 +16,15 @@
     <name>Rocks KB</name>
     <description>Aggregator or placeholder for Rocks knowledge base modules.</description>
 
+    <repositories>
+        <repository>
+            <id>tinkar-nexus</id>
+            <url>https://nexus.tinkar.org/repository/ike-public/</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>true</enabled></snapshots>
+        </repository>
+    </repositories>
+
     <properties>
         <junit-bom.version>6.0.0</junit-bom.version>
         <rocksdbjni.version>10.4.2-r1-SNAPSHOT</rocksdbjni.version>
