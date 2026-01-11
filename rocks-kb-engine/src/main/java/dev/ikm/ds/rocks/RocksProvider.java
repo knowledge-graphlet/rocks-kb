@@ -145,15 +145,25 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
             // Ensure DATA_STORE_ROOT is set in ServiceProperties for other services (like SearchProvider)
             ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, configuredRoot);
             this.name = configuredRoot.getName();
-            configuredRoot.mkdirs();
+
+            // Create directory structure - ensure parent exists before creating subdirectories
+            if (!configuredRoot.exists() && !configuredRoot.mkdirs()) {
+                throw new RuntimeException("Failed to create data store root directory: " + configuredRoot.getAbsolutePath());
+            }
             LOG.info("Datastore root: " + configuredRoot.getAbsolutePath());
+
             File rockFiles = new File(configuredRoot, "rocks");
             boolean kbExists = rockFiles.exists();
-            rockFiles.mkdirs();
-            new File(configuredRoot, "rocks-logs").mkdirs();
+            if (!rockFiles.exists() && !rockFiles.mkdirs()) {
+                throw new RuntimeException("Failed to create rocks directory: " + rockFiles.getAbsolutePath());
+            }
+
+            File rocksLogsDir = new File(configuredRoot, "rocks-logs");
+            if (!rocksLogsDir.exists() && !rocksLogsDir.mkdirs()) {
+                throw new RuntimeException("Failed to create rocks-logs directory: " + rocksLogsDir.getAbsolutePath());
+            }
 
             RocksDB.loadLibrary();
-            configuredRoot.mkdirs();
 
             this.blockCache = new LRUCache(defaultCacheSize);
             this.columnDescriptors = Arrays.stream(ColumnFamily.values())
@@ -197,7 +207,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
                     .setBytesPerSync(8 * 1024 * 1024)
                     .setWalBytesPerSync(8 * 1024 * 1024)
                     // Configure RocksDB log directory (creates LOG, LOG.old.* here)
-                    .setDbLogDir(Path.of(configuredRoot.getPath(), "rocks-logs").toString())
+                    .setDbLogDir(rocksLogsDir.getAbsolutePath())
                     // Optional: adjust verbosity of RocksDB's internal logging
                     .setInfoLogLevel(InfoLogLevel.INFO_LEVEL);
                     
