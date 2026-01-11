@@ -51,7 +51,7 @@ public class RocksProvider implements PrimitiveDataService, NidGenerator {
     public static final long defaultCacheSize = 256L * 1024 * 1024; // 256 MB cache
     public static final int defaultBloomFilterBitsPerKey = 10;
 
-    protected static final File defaultDataDirectory = new File("target/rocksdb/");
+    protected static final File defaultDataDirectory = new File(new File(System.getProperty("user.home"), "Solor"), "rocksdb");
 
     private LongAdder writeSequence = new LongAdder();
 
