@@ -653,8 +653,9 @@ ensure they're not already freed when ColumnFamilyOptions closes.
             SearchService searchService = PluggableService.first(SearchService.class);
             searchService.index(sourceObject);
         } catch (Exception e) {
-            // Search service may not be available yet during startup
-            LOG.debug("SearchService not available for indexing", e);
+            // SearchService not available during DATA_STORAGE/ENTITIES/early phases
+            // This is expected - SearchProvider will rebuild the index after data loading completes
+            LOG.trace("SearchService not available for real-time indexing (expected during startup)", e);
         }
 
         return mergedBytes;
@@ -1009,17 +1010,18 @@ ensure they're not already freed when ColumnFamilyOptions closes.
                 File dataDirectory = new File(rootFolder, providerProperties.get(NEW_FOLDER_PROPERTY));
                 ServiceProperties.set(ServiceKeys.DATA_STORE_ROOT, dataDirectory);
 
-                // Load data from file if specified
+                // Queue data file for loading in DATA_LOAD phase (don't load it now)
                 if (importDataFileString != null) {
-                    ServiceLoader<LoadDataFromFileController> controllerFinder =
-                            PluggableService.load(LoadDataFromFileController.class);
-                    LoadDataFromFileController loader = controllerFinder.findFirst()
-                            .orElseThrow(() -> new IllegalStateException("No LoadDataFromFileController found"));
-                    Future<EntityCountSummary> loadFuture =
-                            (Future<EntityCountSummary>) loader.load(new File(importDataFileString));
-                    EntityCountSummary count = loadFuture.get();
-                    LOG.info("RocksKB loaded: " + count.toString());
-                    provider.save();
+                    File importFile = new File(importDataFileString);
+                    LOG.info("Queueing import file for DATA_LOAD phase: {}", importFile.getAbsolutePath());
+
+                    // Get DataLoadProvider singleton and queue the file
+                    // DataLoadController will load this during DATA_LOAD phase after all services are ready
+                    dev.ikm.tinkar.entity.load.DataLoadProvider dataLoadService =
+                            dev.ikm.tinkar.entity.load.DataLoadProvider.get();
+                    dataLoadService.addFile(importFile);
+
+                    LOG.info("Import file queued - will be loaded after INDEXING phase completes");
                 }
             } finally {
                 loading.set(false);

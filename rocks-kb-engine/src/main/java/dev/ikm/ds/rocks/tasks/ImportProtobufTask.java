@@ -35,7 +35,7 @@ import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
-public class ImportProtobufTask extends TrackingCallable<EntityCountSummary> {
+public class ImportProtobufTask extends TrackingCallable<dev.ikm.tinkar.common.service.EntityCountSummary> {
 
     protected static final Logger LOG = LoggerFactory.getLogger(ImportProtobufTask.class.getName());
     public static final int InputStreamBufferSize = 1024 * 1024;
@@ -73,7 +73,7 @@ public class ImportProtobufTask extends TrackingCallable<EntityCountSummary> {
 
 
     @Override
-    public EntityCountSummary compute() throws Exception {
+    public dev.ikm.tinkar.common.service.EntityCountSummary compute() throws Exception {
         initCounts();
 
         updateTitle("Import Protobuf Data from " + importFile.getName());
@@ -317,9 +317,9 @@ public class ImportProtobufTask extends TrackingCallable<EntityCountSummary> {
         }
     }
 
-    public EntityCountSummary summarize() {
+    public dev.ikm.tinkar.common.service.EntityCountSummary summarize() {
         LOG.info("Imported: " + importCount.get() + " entities in: " + durationString());
-        return new EntityCountSummary(
+        return new dev.ikm.tinkar.common.service.EntityCountSummary(
                 importConceptCount.get(),
                 importSemanticCount.get(),
                 importPatternCount.get(),
